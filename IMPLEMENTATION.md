@@ -86,7 +86,7 @@ one of them has to be green before a release.
 | The metrics have bounded labels (§15.1) | `src/observability/metrics.ts` | the metrics of the process | `bun run start` | proved |
 | The drain is bounded and the pools close once (§15.3) | `src/platform/bun/server.ts`, `src/main.ts` | the harness of the compatibility stops the processes with a signal | `bun run test:compat` | proved |
 | The retention runs with the maintenance role, in batches (§15.4) | `scripts/retention.ts` | the command of the operator | `bun run scripts/retention.ts` | proved |
-| The backup and the restore are rehearsed (§15.4) | `scripts/backup.sh`, `scripts/restore.sh` | the rehearsal of the restore | `./scripts/restore.sh` | proved |
+| The backup and the restore are rehearsed (§15.4) | `scripts/backup.sh`, `scripts/restore.sh` | the rehearsal of the restore (the record of the run is in `docs/backup-restore.md`) | `./scripts/restore.sh` | proved |
 | The capacity is measured and published (§15.5) | `scripts/capacity.ts`, `docs/capacity.md` | the measurement of the development machine | `bun run scripts/capacity.ts` | proved |
 
 ### The client, the boundaries and the compatibility (§12, §13, §16, §17)
@@ -102,7 +102,7 @@ one of them has to be green before a release.
 | The pinned gateway forwards the requests the backend accepts (§16) | `integration/hub/`, `scripts/compatibility.ts` | the harness of the compatibility | `bun run test:compat` | proved |
 | The real hub answers the complete set of the keys and the decision still works (§16) | the patch of the hub | the harness of the compatibility | `bun run test:compat` | proved |
 | The acceptance scenario of §17 succeeds through the gateway | `scripts/compatibility.ts` | the harness of the compatibility | `bun run test:compat` | proved |
-| The service works without a studio (§1.3, §15) | the whole repository | there is no dependency on a studio | `bun run typecheck` | proved |
+| The service works without a studio (§1.3, §15) | the whole repository | there is no dependency on a studio: the repository has no studio package and no studio process | `bun run typecheck`, `bun run test:all` | proved |
 
 ## The verification matrix of the specification (§16)
 
@@ -113,6 +113,7 @@ one of them has to be green before a release.
 | The database, the transactions and the worker | `bun test test/integration` | 28 passed |
 | The boundaries of the code | `bun test test/architecture` | 2 passed |
 | The consumer of the client | `bun test packages/client/test` | 9 passed |
+| The whole repository | `bun run test:all` | 126 passed |
 | The gateway, the hub and the backend | `bun run test:compat` | 21 steps, passed |
 | The capacity | `bun run scripts/capacity.ts` | four scenarios, the report of `docs/capacity.md` |
 
