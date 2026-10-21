@@ -96,6 +96,9 @@ one of them has to be green before a release.
 | The client uses the API through the gateway and it hides nothing (§12) | `packages/client/src/index.ts` | `packages/client/test/client.test.ts` | `bun test packages/client/test` | proved |
 | The description of the API is published (§12) | `src/app/openapi.ts` | `test/contract/http.test.ts` | `bun test test/contract` | proved |
 | The imports follow the matrix and there is no cycle (§13) | `scripts/architecture.ts` | `test/architecture/architecture.test.ts` | `bun run architecture` | proved |
+| The forged roles, the forged e-mail and the revoked grants never influence the authorization (§16) | `src/domains/authorization/`, `src/app/app.ts` | `test/contract/adversarial.test.ts` | `bun test test/contract` | proved |
+| The expired and the malformed contexts never allow a data operation (§16) | `src/domains/authorization/access-context.ts` | `test/contract/adversarial.test.ts` | `bun test test:contract` | proved |
+| Two updates with the same validator answer one success and one refusal (§16) | `src/domains/records/service.ts` | `test/contract/adversarial.test.ts` | `bun test test/contract` | proved |
 | The pinned gateway forwards the requests the backend accepts (§16) | `integration/hub/`, `scripts/compatibility.ts` | the harness of the compatibility | `bun run test:compat` | proved |
 | The real hub answers the complete set of the keys and the decision still works (§16) | the patch of the hub | the harness of the compatibility | `bun run test:compat` | proved |
 | The acceptance scenario of §17 succeeds through the gateway | `scripts/compatibility.ts` | the harness of the compatibility | `bun run test:compat` | proved |
@@ -106,7 +109,7 @@ one of them has to be green before a release.
 | The suite | The command | The result of the last run |
 | --- | --- | --- |
 | The rules of the domains | `bun test test/unit` | 43 passed |
-| The contract of the API | `bun test test/contract` | 34 passed |
+| The contract of the API | `bun test test/contract` | 44 passed |
 | The database, the transactions and the worker | `bun test test/integration` | 28 passed |
 | The boundaries of the code | `bun test test/architecture` | 2 passed |
 | The consumer of the client | `bun test packages/client/test` | 9 passed |

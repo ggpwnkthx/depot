@@ -1203,7 +1203,7 @@ function buildSelect(options: SelectOptions): string {
   select
     ${parts.join(',\n    ')}
   from ${options.table} t
-  where ${options.scopeClause} and (${options.filterClause}) and (${options.keyset})
+  where ${options.scopeClause} and (${options.predicate}) and (${options.filterClause}) and (${options.keyset})
 )
 select ${selected.join(', ')}, (${payload}) as payload, (${relations}) as relations
 from base
