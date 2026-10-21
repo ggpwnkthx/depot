@@ -101,14 +101,17 @@ boundary of the gateway and it is never in the repository.
 | [`docs/backup-restore.md`](docs/backup-restore.md) | The backup and the restore rehearsal. |
 | [`docs/troubleshooting.md`](docs/troubleshooting.md) | The failures and what to do about them. |
 | [`docs/capacity.md`](docs/capacity.md) | The capacity report of the release. |
-| [`integration/hub/README.md`](integration/hub/README.md) | The extension of the hub and how to apply it. |
 | [`packages/client`](packages/client) | The typed client of the API. |
 
 ## The hub extension
 
-The pinned hub does not answer the access context contract that this
-service needs. The extension is a patch against the pinned revision, it
-lives in [`integration/hub/`](integration/hub) and it is a **required
-integration and deployment dependency**: a hub that does not carry the
-patch cannot answer `/v1/access-context`, and the backend fails closed
-without it.
+The access context contract that this service needs is a **required
+integration and deployment dependency**: a hub that does not answer
+`/v1/access-context` cannot serve this backend, and the backend fails
+closed without it.
+
+The extension is **upstream**: hub carries it since `4cedcfc`, and the
+pinned hub of the baseline is that revision. The depot holds no copy of
+the change: a contract of the platform lives in the repository of the
+platform, and the compatibility harness proves the contract against the
+real hub.

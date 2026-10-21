@@ -7,9 +7,10 @@
  * PostgreSQL server, and it performs the acceptance scenario through the
  * gateway.
  *
- * The hub is the extended one: the patch of `integration/hub` is applied
- * to a disposable checkout of the pinned hub. The gateway is the pinned
- * one and it is never modified.
+ * The hub is the extended one: the pinned hub carries the extension of
+ * the access context contract since `4cedcfc`, and the harness checks
+ * the contract against it directly. The gateway is the pinned one and it
+ * is never modified.
  *
  * The commands:
  *
@@ -35,14 +36,12 @@ import { ConnectionPool } from '../src/platform/postgres/database'
 
 /** The commit of the gateway. */
 const SHUTTLE_COMMIT = process.env.SHUTTLE_COMMIT ?? 'e39d73efc37e0ca75ae5df24136babf56430ebc7'
-/** The commit of the hub. */
-const HUB_COMMIT = process.env.HUB_COMMIT ?? 'd488835654ac313aaaeac845d9d7f5c68eb40020'
+/** The commit of the hub. It carries the extension of the access context. */
+const HUB_COMMIT = process.env.HUB_COMMIT ?? '4cedcfc48e9bb4eb556d2316eb502e1ab87d3105'
 /** The repository of the gateway. */
 const SHUTTLE_REPOSITORY = process.env.SHUTTLE_REPOSITORY ?? 'https://github.com/ggpwnkthx/shuttle'
 /** The repository of the hub. */
 const HUB_REPOSITORY = process.env.HUB_REPOSITORY ?? 'https://github.com/ggpwnkthx/hub'
-/** The patch of the hub. */
-const HUB_PATCH = join(process.cwd(), 'integration/hub/0001-access-context-contract.patch')
 
 /** The secrets of the harness. They are fixtures of a test. */
 const SESSION_SECRET = 'compatibility-session-secret-0001'
@@ -203,11 +202,6 @@ async function main(): Promise<void> {
     clone(SHUTTLE_REPOSITORY, SHUTTLE_COMMIT, shuttleDirectory)
     step(`the hub is cloned at ${HUB_COMMIT}`)
     clone(HUB_REPOSITORY, HUB_COMMIT, hubDirectory)
-    const applied = spawnSync(['git', 'apply', '--verbose', HUB_PATCH], { cwd: hubDirectory })
-    if (applied.exitCode !== 0) {
-      throw new Error(`the patch of the hub could not be applied: ${applied.stderr.toString()}`)
-    }
-    step('the patch of the hub is applied')
     install(shuttleDirectory)
     install(hubDirectory)
 
@@ -293,6 +287,23 @@ async function main(): Promise<void> {
     processes.push(hub.process)
     await waitFor(`${hubUrl}/healthz`)
     step('the extended hub is ready')
+
+    // The discovery of the access context contract. The pinned hub has to
+    // answer it: it is the readiness check of the backend, and a hub that
+    // does not answer it never lets the backend serve a request.
+    const contextDiscovery = await fetch(`${hubUrl}/v1/access-context`, {
+      headers: { authorization: `Bearer ${CONTEXT_TOKEN}` },
+    })
+    if (!contextDiscovery.ok) {
+      throw new Error(
+        `the hub does not answer the discovery of the access context: ${await contextDiscovery.text()}`
+      )
+    }
+    const contract = (await contextDiscovery.json()) as { versions?: number[] }
+    if (!Array.isArray(contract.versions) || !contract.versions.includes(1)) {
+      throw new Error('the hub does not speak the version of the access context contract')
+    }
+    step('the hub answers the discovery of the access context contract')
 
     // 5. The fixtures of the hub: a tenant, a principal, a group, the grants.
     const adminCall = async (

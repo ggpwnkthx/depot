@@ -38,13 +38,13 @@ The integration baseline is pinned to:
 | Project | Commit | Normative reference |
 | --- | --- | --- |
 | Shuttle | `e39d73efc37e0ca75ae5df24136babf56430ebc7` | [Gateway specification](https://github.com/ggpwnkthx/shuttle/blob/e39d73efc37e0ca75ae5df24136babf56430ebc7/docs/spec.md) |
-| Hub | `d488835654ac313aaaeac845d9d7f5c68eb40020` | [Identity and grants specification](https://github.com/ggpwnkthx/hub/blob/d488835654ac313aaaeac845d9d7f5c68eb40020/docs/spec.md) |
+| Hub | `4cedcfc48e9bb4eb556d2316eb502e1ab87d3105` | [Identity and grants specification](https://github.com/ggpwnkthx/hub/blob/4cedcfc48e9bb4eb556d2316eb502e1ab87d3105/docs/spec.md) |
 
 Additional implementation evidence:
 
 - [Shuttle architecture](https://github.com/ggpwnkthx/shuttle/blob/e39d73efc37e0ca75ae5df24136babf56430ebc7/docs/architecture.md).
-- [Hub decision query](https://github.com/ggpwnkthx/hub/blob/d488835654ac313aaaeac845d9d7f5c68eb40020/src/platform/postgres/decisions.ts).
-- [Hub transaction-scoped tenant isolation](https://github.com/ggpwnkthx/hub/blob/d488835654ac313aaaeac845d9d7f5c68eb40020/src/platform/postgres/scope.ts).
+- [Hub decision query](https://github.com/ggpwnkthx/hub/blob/4cedcfc48e9bb4eb556d2316eb502e1ab87d3105/src/platform/postgres/decisions.ts).
+- [Hub transaction-scoped tenant isolation](https://github.com/ggpwnkthx/hub/blob/4cedcfc48e9bb4eb556d2316eb502e1ab87d3105/src/platform/postgres/scope.ts).
 
 A compatibility change requires updating the pinned references and passing the integration suite. Hub's proposed integration changes are implemented in its own repository and must preserve the existing gateway contract.
 
@@ -214,7 +214,7 @@ Missing/invalid gateway proof yields `401 UNAUTHENTICATED`. A signed/path worksp
 
 ## 5. Required Hub access-context extension
 
-**Integration status:** Proposed. These endpoints do not exist in the pinned Hub baseline. Implementing and contract-testing them in Hub is a release prerequisite.
+**Integration status:** Implemented. Hub carries the two endpoints since `4cedcfc48e9bb4eb556d2316eb502e1ab87d3105`, and the pinned Hub baseline of this release is that revision. The change lives in the repository of the hub, not in a copy of this repository; the compatibility harness proves the contract against the real hub.
 
 The backend MUST NOT substitute Hub's admin API, direct SQL, forwarded roles, or the boolean `/v1/decisions` answer for this contract. Shuttle continues to use its existing decision endpoint.
 

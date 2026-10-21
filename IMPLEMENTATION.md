@@ -7,8 +7,8 @@ proves it and to the command that runs the check.
 
 **The status of the release:** version 0.1 is implemented. The one
 dependency that the release carries is the extension of the hub, which
-lives in [`integration/hub/`](integration/hub) and which has to be
-deployed with the hub.
+is upstream since `4cedcfc` and which has to be deployed with the hub.
+The change lives in the repository of the hub.
 
 ## The milestones
 
@@ -99,8 +99,8 @@ one of them has to be green before a release.
 | The forged roles, the forged e-mail and the revoked grants never influence the authorization (§16) | `src/domains/authorization/`, `src/app/app.ts` | `test/contract/adversarial.test.ts` | `bun test test/contract` | proved |
 | The expired and the malformed contexts never allow a data operation (§16) | `src/domains/authorization/access-context.ts` | `test/contract/adversarial.test.ts` | `bun test test:contract` | proved |
 | Two updates with the same validator answer one success and one refusal (§16) | `src/domains/records/service.ts` | `test/contract/adversarial.test.ts` | `bun test test/contract` | proved |
-| The pinned gateway forwards the requests the backend accepts (§16) | `integration/hub/`, `scripts/compatibility.ts` | the harness of the compatibility | `bun run test:compat` | proved |
-| The real hub answers the complete set of the keys and the decision still works (§16) | the patch of the hub | the harness of the compatibility | `bun run test:compat` | proved |
+| The pinned gateway forwards the requests the backend accepts (§16) | `scripts/compatibility.ts` | the harness of the compatibility | `bun run test:compat` | proved |
+| The real hub answers the complete set of the keys and the decision still works (§16) | the extension of the hub (`4cedcfc`) | the harness of the compatibility | `bun run test:compat` | proved |
 | The acceptance scenario of §17 succeeds through the gateway | `scripts/compatibility.ts` | the harness of the compatibility | `bun run test:compat` | proved |
 | The service works without a studio (§1.3, §15) | the whole repository | there is no dependency on a studio: the repository has no studio package and no studio process | `bun run typecheck`, `bun run test:all` | proved |
 

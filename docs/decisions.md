@@ -139,15 +139,18 @@ materialized.
 limit. The expansion uses one statement per relation and per batch of
 the parents, never one statement per parent.
 
-## 13. The extension of the hub is a patch and not a fork
+## 13. The extension of the hub lives in the hub and not in a copy here
 
-The extension lives in `integration/hub/` as a patch against the pinned
-revision, and the compatibility harness applies it to a disposable
-checkout.
+The extension of the access context contract is a change of the hub, and
+it was taken upstream: the hub carries it since `4cedcfc`, the depot
+pins that revision, and the depot holds no copy of the change.
 
 **Why.** The gateway and the hub are the contracts of the platform, and
 a change of them is a change of the platform. A patch that is reviewed
-against a pinned revision is reviewable; a fork is not.
+against a pinned revision is reviewable; a fork is not. Once the change
+is in the repository of the hub, a copy of it here would be a second
+source of truth that can only rot: the depot proves the contract with
+the compatibility harness, against the real hub, at the pinned revision.
 
 ## 14. The tests run against a real PostgreSQL server
 

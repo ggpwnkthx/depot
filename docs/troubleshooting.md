@@ -49,8 +49,8 @@ hold a capability for the collection.
 The hub is not available, or it does not speak the version of the
 contract.
 
-- The patch of the hub is applied: a hub without the extension does not
-  answer `/v1/access-context`.
+- The hub is at a revision that carries the extension: a hub before
+  `4cedcfc` does not answer `/v1/access-context`.
 - The credential of the access context is the one of the deployment and
   it is scoped to the tenant of the workspace.
 - The clock of the two servers is synchronized within a second: an
