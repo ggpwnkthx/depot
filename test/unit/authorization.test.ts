@@ -114,8 +114,17 @@ describe('the compilation of a filter', () => {
   test('the values are bound and the identifiers are quoted', () => {
     const node = parseFilter({ title: { _eq: 'Launch notes' } }, { fields: catalogue })
     const compiled = compileFilter(node, { fields: catalogue, alias: 't' })
-    expect(compiled.sql).toBe('"t"."title" = $1')
+    expect(compiled.sql).toBe('"t"."title" collate "C" = $1')
     expect(compiled.params).toEqual(['Launch notes'])
+  })
+
+  test('the comparison of the text does not depend on the collation of the database', () => {
+    const node = parseFilter({ title: { _lt: 'apple' } }, { fields: catalogue })
+    const compiled = compileFilter(node, { fields: catalogue, alias: 't' })
+    expect(compiled.sql).toContain('collate "C"')
+    const number = parseFilter({ version: { _lt: 10 } }, { fields: catalogue })
+    const compiledNumber = compileFilter(number, { fields: catalogue, alias: 't' })
+    expect(compiledNumber.sql).not.toContain('collate')
   })
 })
 

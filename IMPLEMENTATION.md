@@ -52,8 +52,7 @@ one of them has to be green before a release.
 | The server maintained fields may not be written (§7.3) | `src/domains/records/validation.ts` | `test/contract/http.test.ts` (`SERVER_FIELD`) | `bun test test/contract` | proved |
 | The types and the bounds are checked on the server (§7.4) | `src/domains/records/validation.ts` | `test/contract/http.test.ts` (`MAX_LENGTH`) | `bun test test/contract` | proved |
 | The read composition exposes a field only when a policy that matches the row grants it (§8.2) | `src/domains/records/service.ts` (the projection of the statement) | `test/contract/http.test.ts`, `test/unit/authorization.test.ts` | `bun test test/unit test/contract` | proved |
-| The two evaluations of a predicate agree (§8.2) | `src/domains/authorization/filter.ts` | `test/integration/filter.test.ts` (the differential test against the server), `test/contract/null-semantics.test.ts` | `bun test test/integration test/contract` | proved |
-| The filter and the sort use the intersection of the policies (§8.2) | `src/domains/records/service.ts` | `test/contract/http.test.ts` (the filter of a hidden field) | `bun test test/contract` | proved |
+| The two evaluations of a predicate agree (§8.2) | `src/domains/authorization/filter.ts` | `test/integration/filter.test.ts` (the differential test against the server), `test/contract/null-semantics.test.ts` | `bun test test/integration test/contract` | proved || The filter and the sort use the intersection of the policies (§8.2) | `src/domains/records/service.ts` | `test/contract/http.test.ts` (the filter of a hidden field) | `bun test test/contract` | proved |
 | A write is authorized by one complete policy (§8.3) | `src/domains/authorization/rules.ts` | `test/unit/authorization.test.ts` | `bun test test/unit` | proved |
 | The update checks the row before and the row after (§8.3) | `src/domains/records/service.ts` | `test/unit/authorization.test.ts` (the write that moves the row) | `bun test test/unit` | proved |
 | The relations are expanded with the policies of the target (§8.4) | `src/domains/records/service.ts` | `test/contract/http.test.ts` | `bun test test/contract` | proved |
@@ -112,12 +111,12 @@ one of them has to be green before a release.
 
 | The suite | The command | The result of the last run |
 | --- | --- | --- |
-| The rules of the domains | `bun test test/unit` | 47 passed |
+| The rules of the domains | `bun test test/unit` | 48 passed |
 | The contract of the API | `bun test test/contract` | 50 passed |
 | The database, the transactions and the worker | `bun test test/integration` | 30 passed |
 | The boundaries of the code | `bun test test/architecture` | 2 passed |
 | The consumer of the client | `bun test packages/client/test` | 9 passed |
-| The whole repository | `bun run test:all` | 138 passed |
+| The whole repository | `bun run test:all` | 139 passed |
 | The gateway, the hub and the backend | `bun run test:compat` | 21 steps, passed |
 | The capacity | `bun run scripts/capacity.ts` | four scenarios, the report of `docs/capacity.md` |
 

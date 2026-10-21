@@ -28,6 +28,7 @@ const catalogue: Record<string, FieldDefinition> = {
   ref: { type: 'uuid', required: false, nullable: true },
   at: { type: 'timestamp', required: false, nullable: true },
   price: { type: 'decimal', required: false, nullable: true },
+  titled: { type: 'string', required: false, nullable: true },
 }
 
 const substitutions = {
@@ -39,10 +40,10 @@ const substitutions = {
 /** The rows of the fixture: every column is null on one row. */
 const FIXTURE = `
   insert into filter_probe values
-    (1, 'alpha', 10, true,  '44444444-4444-4444-8444-444444444444', '2024-01-01T00:00:00.000Z', '10.50'),
-    (2, 'beta',  20, false, '55555555-5555-4555-8555-555555555555', '2024-06-01T12:30:00.000Z', '20.25'),
-    (3, null,   null, null, null, null, null),
-    (4, 'gamma', null, true, null, null, '0.10')
+    (1, 'alpha', 10, true,  '44444444-4444-4444-8444-444444444444', '2024-01-01T00:00:00.000Z', '10.50', 'Zebra'),
+    (2, 'beta',  20, false, '55555555-5555-4555-8555-555555555555', '2024-06-01T12:30:00.000Z', '20.25', 'apple'),
+    (3, null,   null, null, null, null, null, null),
+    (4, 'gamma', null, true, null, null, '0.10', 'Zebra')
 `
 
 /** The predicates the two evaluations have to agree on. */
@@ -103,6 +104,13 @@ const PREDICATES: readonly { name: string; node: FilterNode }[] = [
     name: 'a_timestamp',
     node: { kind: 'cmp', field: 'at', operator: '_gte', value: '2024-06-01T12:30:00.000Z' },
   },
+  {
+    // The comparison of the text is the comparison of the bytes: the
+    // column of the fixture carries the collation of the unicode, and the
+    // two evaluations still have to agree.
+    name: 'a_text_of_a_unicode_collation',
+    node: { kind: 'cmp', field: 'titled', operator: '_lt', value: 'apple' },
+  },
 ]
 
 test('the two evaluations of a predicate agree', async () => {
@@ -110,6 +118,11 @@ test('the two evaluations of a predicate agree', async () => {
   const client = new Client({ connectionString: database.ownerUrl })
   await client.connect()
   await client.query('drop table if exists filter_probe')
+  // The column of the text carries the collation of the unicode: the
+  // comparison of the database is not the comparison of the bytes, and
+  // the compiler has to be the one that decides.
+  const collations = await client.query(`select 1 from pg_collation where collname = 'en-x-icu'`)
+  const collation = collations.rowCount ? 'en-x-icu' : 'C'
   await client.query(`create table filter_probe (
     id int primary key,
     label text,
@@ -117,7 +130,8 @@ test('the two evaluations of a predicate agree', async () => {
     flag boolean,
     ref uuid,
     at timestamptz,
-    price numeric
+    price numeric,
+    titled text collate "${collation}"
   )`)
   await client.query(FIXTURE)
   const rows = (await client.query('select * from filter_probe order by id')).rows

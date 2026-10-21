@@ -437,8 +437,15 @@ export function compileFilter(node: FilterNode, options: CompileFilterOptions): 
         current.field
       )
     }
-    const column = `${alias}${quoteIdentifier(current.field)}`
     const type = sqlTypeOf(definition)
+    // The comparison of the text is the comparison of the bytes, and not
+    // the comparison of the locale of the database: the evaluation in
+    // memory compares the code units, and the two evaluations have to
+    // agree whatever the collation of the deployment is.
+    const column =
+      type === 'text'
+        ? `${alias}${quoteIdentifier(current.field)} collate "C"`
+        : `${alias}${quoteIdentifier(current.field)}`
     switch (current.operator) {
       case '_eq':
         return `${column} = ${placeholder(current.value, type)}`

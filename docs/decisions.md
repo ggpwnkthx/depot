@@ -177,10 +177,21 @@ The evaluation in memory that treated the null as a value would let a
 caller write a record that the read hides, and the two rules of the
 service would contradict each other inside the same request.
 
+The comparison of the text is the comparison of the bytes, and not the
+comparison of the locale of the database: the compiler writes the
+collation `C` on the columns of the text, and the evaluation in memory
+compares the code units. A deployment whose database carries a collation
+of the locale would otherwise answer differently from the evaluation in
+memory — `'Zebra' < 'apple'` is true for the bytes and false for the
+collation of the unicode.
+
 The two evaluations are compared by a differential test: the same
 predicates run against the same rows, in memory and in the server, and
-the two answers have to be the same. The test is the proof that a change
-of one of the two engines does not change the meaning of a policy.
+the two answers have to be the same. The fixture of the test carries a
+column with the collation of the unicode, so the test proves that the
+compiler does not depend on the collation of the deployment. The test is
+the proof that a change of one of the two engines does not change the
+meaning of a policy.
 
 ## 16. The metrics of the dependency and of the cache are recorded by the component that owns them
 
