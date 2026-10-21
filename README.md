@@ -60,6 +60,8 @@ deployment on every record.
 | `bun test test/integration` | The database, the transactions and the worker. |
 | `bun test packages/client/test` | The consumer of the typed client. |
 | `bun run test:compat` | The real gateway, the real hub and the real backend. |
+| `bun run scripts/capacity.ts` | The latency of the service on a development machine. |
+| `bun run scripts/scale.ts` | The plan of the statements, and the pagination, on a large collection. |
 | `docker build .` | The image of the service. |
 | `docker compose up --build` | The stack of the development machine. |
 

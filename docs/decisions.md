@@ -29,7 +29,42 @@ Building the payload in the statement is the only way to keep that
 promise without a second round trip per row. The cost is a statement
 that is longer than the one a reader would write by hand.
 
-## 3. The page position is a tuple, not an offset
+**The projection is built for the rows of the page, and not for the
+rows of the scope.** The statement reads the page first — the
+identifiers, the order and the limit — and the second part builds the
+payload of the rows of that page.
+
+**Why.** The projection reads every field of a row and builds a json
+value for each of them. A statement that projected every row of the
+scope and then kept the page paid the projection of the whole
+collection for every page: 97 milliseconds for a page of fifty rows at
+two hundred thousand rows, against 0.9 milliseconds when the projection
+is built for the page only. The two parts are the same promise — the
+value the caller may not see never leaves the database — and the second
+one is the only one that is affordable.
+
+## 3. The order of a page is the order of the database
+
+The order of the service is the order of the nulls last, in the two
+directions. The statement writes it as `col asc nulls last`, and the
+position of the cursor keeps the rank of the nulls with the value of
+the column.
+
+**Why.** `((col is null))::int asc, col asc` is the same order, and the
+database does not recognise it as the order of an index: it read the
+whole scope and sorted it for every page. `col asc nulls last` is the
+order of an index, and the page is read with the index of the scope of
+the workspace. The rank of the nulls stays in the position of the
+cursor, because the continuation of a page has to compare the nulls of
+a column with the nulls of the position.
+
+**The cost.** A descending sort needs an index that the deployment
+declares `desc nulls last`: the default index of a column is `asc
+nulls first` for the descending direction, and the order of the service
+is the order of the nulls last. The indexes belong to the reviewed
+migration of the collection.
+
+## 4. The page position is a tuple, not an offset
 
 The cursor holds the values of the columns of the sort and the rank of
 their null values, and the continuation of a page is the explicit
@@ -40,7 +75,7 @@ is inserted. The tuple is stable and it is bounded. The rank of the null
 values is part of the tuple because PostgreSQL sorts the nulls last in
 the two directions and the continuation has to agree with the order.
 
-## 4. The write is authorized by one policy, and the check is evaluated in memory
+## 5. The write is authorized by one policy, and the check is evaluated in memory
 
 The predicate of a policy is compiled to SQL for the reads and it is
 evaluated in memory for the writes. The write path holds the row, so it
@@ -52,7 +87,7 @@ predicate of the resulting row into a statement would mean a second
 statement with the same conditions in two places. The domain evaluates
 the same filter node with the same operators, so the two answers agree.
 
-## 5. The idempotency key is claimed with a statement that waits
+## 6. The idempotency key is claimed with a statement that waits
 
 The claim of a key uses `insert … on conflict do update … where false`.
 It waits for the transaction that holds the key, and it is bounded by a
@@ -64,7 +99,7 @@ answered before the first one committed would create two records. The
 statement that waits costs a privilege of update on the receipts, and
 that privilege is limited to the rows of the scope of the transaction.
 
-## 6. The context of the hub is never cached by the service, by default
+## 7. The context of the hub is never cached by the service, by default
 
 `DATA_CONTEXT_CACHE_TTL_MS` is zero. A read may be cached when the
 operator asks for it, and the entry leaves the cache at the earlier of
@@ -76,7 +111,7 @@ grant is visible in the next request, and the bound of a revocation is
 the lifetime of the cache plus the duration of the request that is
 running.
 
-## 7. The scope of a transaction is set with `set_config(…, true)`
+## 8. The scope of a transaction is set with `set_config(…, true)`
 
 The settings `data.tenant_id`, `data.workspace_id` and
 `data.principal_id` are local to the transaction.
@@ -86,7 +121,7 @@ request, and the policies of the tables deny the rows when the settings
 are missing. The setting is a scope and not a credential: it is never
 read by a caller and it is never sent over the wire.
 
-## 8. The identity of the gateway is derived, and it is not the secret of the session
+## 9. The identity of the gateway is derived, and it is not the secret of the session
 
 The backend holds the derived key of the identity signature, never
 `SHUTTLE_SESSION_SECRET`.
@@ -97,7 +132,7 @@ of the gateway, and the key of the signature may be rotated with the
 gateway and not with the sessions. The key is a signing capable secret
 and it belongs inside the trust boundary of the gateway.
 
-## 9. The workspace is read before the context exists
+## 10. The workspace is read before the context exists
 
 The registry is read with a narrow reader: the role may select three
 columns of one table and it may only look a workspace up by its exact
@@ -108,7 +143,7 @@ belongs to a tenant: the tenant of the workspace is needed before the
 context of the principal exists. The reader is the narrowest exception
 of the specification and it has no access to any business table.
 
-## 10. The events and the audit are written by the domain, in the transaction of the mutation
+## 11. The events and the audit are written by the domain, in the transaction of the mutation
 
 The records service writes the audit entry, the event and the receipt
 through the unit of work of the mutation.
@@ -118,7 +153,7 @@ together or not at all. The only place that can guarantee it is the
 transaction of the mutation itself, and the only way to prove it is to
 inject a failure at every stage of the transaction.
 
-## 11. The subscriber is registered in the composition root
+## 12. The subscriber is registered in the composition root
 
 The subscribers of the deployment are code, with a stable identifier and
 a filter of the events they handle. The worker resolves a fresh context
@@ -129,7 +164,7 @@ uploaded plugins and the caller defined handlers. The authority of a
 subscriber is the authority of the service principal, and the identity
 of the caller that started the chain is an attribution.
 
-## 12. The number of the rows of a page is bounded by the answer and not by the page
+## 13. The number of the rows of a page is bounded by the answer and not by the page
 
 The budget of four mebibytes is checked while the rows are encoded, and
 the expansion of the relations is bounded before the rows are
@@ -139,7 +174,7 @@ materialized.
 limit. The expansion uses one statement per relation and per batch of
 the parents, never one statement per parent.
 
-## 13. The extension of the hub lives in the hub and not in a copy here
+## 14. The extension of the hub lives in the hub and not in a copy here
 
 The extension of the access context contract is a change of the hub, and
 it was taken upstream: the hub carries it since `4cedcfc`, the depot
@@ -152,7 +187,7 @@ is in the repository of the hub, a copy of it here would be a second
 source of truth that can only rot: the depot proves the contract with
 the compatibility harness, against the real hub, at the pinned revision.
 
-## 14. The tests run against a real PostgreSQL server
+## 15. The tests run against a real PostgreSQL server
 
 The integration tests and the compatibility harness start a PostgreSQL
 server of their own.
@@ -162,7 +197,7 @@ the behaviour of a server. An embedded engine proves the rules of the
 domain and nothing else, and the specification asks for the server level
 checks.
 
-## 15. The null of a comparison follows the database
+## 16. The null of a comparison follows the database
 
 The predicate of a policy is compiled to SQL for the reads and it is
 evaluated in memory for the writes. The two evaluations use the three
@@ -199,7 +234,7 @@ compiler does not depend on the collation of the deployment. The test is
 the proof that a change of one of the two engines does not change the
 meaning of a policy.
 
-## 16. The metrics of the dependency and of the cache are recorded by the component that owns them
+## 17. The metrics of the dependency and of the cache are recorded by the component that owns them
 
 The client of the hub records the calls it makes and their duration, the
 resolver records the hits and the misses of the cache of the context, the
@@ -212,7 +247,7 @@ for the duration of the hub, for the hits of the cache and for the
 rollbacks, and the component that holds the event is the only one that
 can count it without a guess.
 
-## 17. The catalog of a workspace is a logical registry over the tables of the deployment
+## 18. The catalog of a workspace is a logical registry over the tables of the deployment
 
 A workspace registers the collections of the deployment that it serves,
 and it publishes the bundle of policies that applies to it. The
@@ -241,7 +276,7 @@ deployment. The default of a deployment that has not used the registry
 yet is the deployment itself, and a deployment that starts to use it
 does not change the behaviour of the workspaces that did not.
 
-## 18. The publication of a bundle is an operator command and not an HTTP route
+## 19. The publication of a bundle is an operator command and not an HTTP route
 
 A bundle of policies is published with a command of the operator, on the
 machine of the deployment. There is no endpoint that writes a bundle.
@@ -262,7 +297,7 @@ api. A studio that edits the policies of a workspace will need an
 endpoint, and that endpoint will need an authority of its own, defined
 in the hub and not in the deployment.
 
-## 19. The negation of a predicate keeps the three valued logic of the database
+## 20. The negation of a predicate keeps the three valued logic of the database
 
 The operator `_not` negates a whole predicate, and the negation of an
 unknown is an unknown: a row whose value is null is never matched by a
@@ -279,7 +314,7 @@ record that the read hides. The differential test carries the cases of
 the negation, and it runs them against a real server: the two answers
 have to be the same, row by row.
 
-## 20. The catalog is read with the registry of the workspaces, and it is carried by the context
+## 21. The catalog is read with the registry of the workspaces, and it is carried by the context
 
 The narrow reader of the registry reads the workspace **and** the
 registry of its catalog in one statement, and the application puts the
@@ -311,7 +346,7 @@ weaken the guarantee: a bundle that was edited in the database has
 another digest, and it is parsed again and refused when it cannot be
 used.
 
-## 21. The search is a parameter of the query and not an operator of the filter
+## 22. The search is a parameter of the query and not an operator of the filter
 
 The search of a collection is the `search` parameter of the list and of
 the aggregate. It is not an operator of the filter grammar.
@@ -339,7 +374,7 @@ a difference is a silent regression: the search answers the same rows
 and it costs a scan of the table. The test of the integration reads the
 plan of the database and it fails when the index is not used.
 
-## 22. The aggregate reads the rows that a list reads, and it uses the fields that the caller may filter by
+## 23. The aggregate reads the rows that a list reads, and it uses the fields that the caller may filter by
 
 The aggregate is a statement of a list with a `group by`: the same
 scope, the same disjunction of the read predicates of the policies and

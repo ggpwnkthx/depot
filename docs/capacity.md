@@ -88,6 +88,43 @@ What the numbers say:
   it cannot prove. The rate of the refusals is the rate of the failures
   of the dependency.
 
+## The shape of the statements at scale
+
+The report above measures the latency of the service on a small table.
+The shape of the statements is another question, and the command
+`bun run scripts/scale.ts` measures it: it writes a collection of a
+million rows, it reads the plan of the database for the statement of a
+page, and it walks every page of the collection and compares the rows
+with the rows of one statement.
+
+The statement of a read is in two parts. The first one reads the page:
+the identifiers of the rows, the order and the limit. The second one
+builds the payload of the rows of the page — and the payload is built
+by the statement, because a value the caller may not see must never
+leave the database (`docs/decisions.md` §2).
+
+The order of the service is the order of the nulls last, in the two
+directions. The database writes it as `col asc nulls last`, and that is
+the order of an index: the page is read with the index of the scope and
+without a sort.
+
+| The collection | The plan before | The plan now | The time of the page |
+| --- | --- | --- | --- |
+| 200 000 rows | sequential scan, sort of the whole scope, projection of every row | index scan of the page, 51 lookups | 97 ms → 0.9 ms |
+| 1 000 000 rows | the same, three times the rows | the same plan | 0.9 ms |
+
+The pagination of the service was walked over a collection of 200 000
+rows: 4 000 pages, and every row of the collection, in the order of the
+database.
+
+**A deployment declares the indexes of its collections.** The page is
+read with the index of the scope of the workspace, and a sort on a field
+needs the index of that field in the reviewed migration of the
+collection. A descending sort needs an index that is declared
+`desc nulls last`: the default index of a column is `asc nulls first`
+for the descending direction, and the order of the service is the order
+of the nulls last.
+
 ## What is not measured here
 
 - **The replicas.** The measurement runs one api process. A deployment
@@ -97,10 +134,10 @@ What the numbers say:
   retries are checked by the integration tests, and their capacity is
   measured with the metrics of the outbox: `data_outbox_backlog` and
   `data_outbox_oldest_age_seconds`.
-- **The slow statements.** The measurement uses a small table. A
-  collection with millions of rows needs the indexes of its own filters,
-  and the indexes of a filter belong to the reviewed migration of the
-  collection.
+- **The slow statements.** The measurement uses a small table. The
+  shape of the statements at scale is measured by
+  `bun run scripts/scale.ts`, and the indexes of the filters of a
+  collection belong to the reviewed migration of the collection.
 - **The maximum of the bounds.** The scenarios do not use a page of
   200 records, a filter of fifty predicates or an expansion of a
   thousand rows. The bounds are checked by the contract tests, and the

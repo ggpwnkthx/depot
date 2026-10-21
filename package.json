@@ -29,6 +29,7 @@
     "test:all": "bun test test/unit test/contract test/integration test/architecture packages/client/test",
     "test:architecture": "bun test test/architecture",
     "capacity": "bun run scripts/capacity.ts",
+    "scale": "bun run scripts/scale.ts",
     "retention": "bun run scripts/retention.ts",
     "provision": "bun run scripts/provision.ts",
     "fixtures": "bun run scripts/generate-fixtures.ts",

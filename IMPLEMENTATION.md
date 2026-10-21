@@ -90,6 +90,8 @@ one of them has to be green before a release.
 | The deferred endpoints are absent (§2.2) | `src/app/app.ts` | `test/contract/http.test.ts` (the deferred paths) | `bun test test/contract` | checked |
 | The list is bounded and the count uses the same predicates (§9.3) | `src/domains/records/service.ts` | `test/contract/http.test.ts` | `bun test test/contract` | checked |
 | The cursor is signed, it binds the query and it expires (§9.4) | `src/domains/records/canonical.ts` | `test/contract/http.test.ts` (the traversal), `test/unit/authorization.test.ts` | `bun test test/unit test/contract` | checked |
+| The pages of a collection cover it in the order of the database, in the three orders of the service (§9.4) | `src/domains/records/sql.ts` | `test/contract/http.test.ts` (the pagination), `scripts/scale.ts` (the walk of every page) | `bun test test/contract` | checked |
+| A read of a page costs the page and not the scope (§9.3) | `src/domains/records/service.ts` | `scripts/scale.ts` (the plan of the statement at a million rows) | `bun run scripts/scale.ts` | checked |
 | The validator is the digest of the canonical bytes (§9.5) | `src/domains/records/canonical.ts` | `test/contract/http.test.ts` (the update with a current and with an old validator) | `bun test test/contract` | checked |
 | The creation needs an idempotency key and answers a minimal receipt (§9.6) | `src/domains/records/service.ts` | `test/contract/http.test.ts` | `bun test test/contract` | checked |
 | The replay of a key answers the original receipt (§9.6) | `src/domains/records/service.ts` | `test/contract/http.test.ts` | `bun test test/contract` | checked |
@@ -135,14 +137,15 @@ one of them has to be green before a release.
 
 | The suite | The command | The result of the last run |
 | --- | --- | --- |
-| The rules of the domains | `bun test test/unit` | 66 passed |
-| The contract of the API | `bun test test/contract` | 71 passed |
-| The database, the transactions and the worker | `bun test test/integration` | 43 passed |
+| The rules of the domains | `bun test test/unit` | 73 passed |
+| The contract of the API | `bun test test/contract` | 74 passed |
+| The database, the transactions and the worker | `bun test test/integration` | 44 passed |
 | The boundaries of the code | `bun test test/architecture` | 2 passed |
 | The consumer of the client | `bun test packages/client/test` | 10 passed |
-| The whole repository | `bun run test:all` | 192 passed |
+| The whole repository | `bun run test:all` | 203 passed |
 | The gateway, the hub and the backend | `bun run test:compat` | 21 steps, passed |
 | The capacity | `bun run scripts/capacity.ts` | four scenarios, the report of `docs/capacity.md` |
+| The shape of the statements at scale | `bun run scripts/scale.ts` | the plan of a page at a million rows, and the walk of every page |
 
 ## The gates of a release
 

@@ -16,6 +16,22 @@ found, and they do not change the contract of v1.
 
 ### Fixed
 
+- **The second page of a collection answers the collection.** The cursor
+  of a page was bound with a parameter that the statement did not
+  reference, and the database refused the statement: every page after
+  the first one answered `500`. The check of the contract suite never
+  saw it, because the only test of the cursor mocked the answer of the
+  service. The contract suite walks the pages of a collection now, in
+  the three orders of the service.
+- **A read costs the page and not the scope.** The projection of a row
+  is built by the statement, and it was built for every row of the
+  scope before the page was taken. The statement reads the page first
+  and builds the projection of the rows of the page. The order of the
+  service is written as the order of the database, `col asc nulls
+  last`, which is the order of an index: the whole scope was read and
+  sorted for every page. The plan of a page of fifty rows went from a
+  sequential scan of the scope to an index scan of the page — 97 ms
+  became 0.9 ms at two hundred thousand rows.
 - **The two evaluations of a predicate agree on every predicate.** The
   reads compile a predicate into SQL and the writes evaluate the same
   predicate in memory. The evaluation in memory compared every value
@@ -39,6 +55,10 @@ found, and they do not change the contract of v1.
   `test/integration/filter.property.test.ts` writes the rows and the
   predicates that were not written by hand, and it compares the two
   answers of every one of them.
+- **The command `bun run scripts/scale.ts`**: it writes a collection of
+  a million rows, it measures the plan of the statement of a page, and
+  it walks every page of the collection and compares the rows with the
+  rows of one statement.
 
 ### Changed
 
