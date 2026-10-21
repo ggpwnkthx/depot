@@ -1,7 +1,12 @@
 import { expect, test } from 'bun:test'
 import { Client } from 'pg'
 import { testDatabase } from '../helpers/database'
-import { compileFilter, evaluateFilter, parseFilter } from '../../src/domains/authorization/filter'
+import {
+  compileFilter,
+  evaluateFilter,
+  type FilterNode,
+  parseFilter,
+} from '../../src/domains/authorization/filter'
 import type { FieldDefinition } from '../../src/domains/schema'
 
 /**
@@ -99,7 +104,7 @@ const POOL: Record<string, readonly unknown[]> = {
     '2024-12-31T23:59:59.999Z',
   ],
   decimal: ['0', '0.10', '10.50', '20.25', '-5.00', '100', '0.0000001'],
-  json: [{ a: 1, b: 2 }, { b: 2, a: 1 }, { a: 1 }, [1, 2], ['a', 'b'], { 'ä': '😀' }],
+  json: [{ a: 1, b: 2 }, { b: 2, a: 1 }, { a: 1 }, [1, 2], ['a', 'b'], { ä: '😀' }],
 }
 
 /** The operators that each type accepts. */
@@ -205,7 +210,7 @@ test('the two evaluations of a predicate agree on every generated predicate', as
   let checked = 0
   for (let index = 0; index < CASES; index += 1) {
     const filter = randomFilter(random, 1)
-    let node
+    let node: FilterNode
     try {
       node = parseFilter(filter, { fields: catalogue, substitutions: true })
     } catch (error) {
@@ -277,7 +282,9 @@ function randomFilter(random: () => number, depth: number): unknown {
   if (depth < 4 && roll < 0.18) {
     const branches = 2 + Math.floor(random() * 2)
     const children = Array.from({ length: branches }, () => randomFilter(random, depth + 1))
-    return roll < 0.09 ? { _not: randomFilter(random, depth + 1) } : { [random() < 0.5 ? '_and' : '_or']: children }
+    return roll < 0.09
+      ? { _not: randomFilter(random, depth + 1) }
+      : { [random() < 0.5 ? '_and' : '_or']: children }
   }
   if (depth < 4 && roll < 0.24) {
     return { _not: randomFilter(random, depth + 1) }

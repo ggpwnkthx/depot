@@ -83,7 +83,7 @@ describe('the aggregate of a collection', () => {
         body: {
           article_id: articleId,
           word_count: words,
-          event_id: '44444444-4444-4444-8444-44444444444' + (event === 'event-1' ? '1' : '2'),
+          event_id: `44444444-4444-4444-8444-44444444444${event === 'event-1' ? '1' : '2'}`,
         },
         headers: { 'idempotency-key': key },
       })

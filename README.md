@@ -17,6 +17,17 @@ studio is one of its clients, like any other client.
   release. [`IMPLEMENTATION.md`](IMPLEMENTATION.md) is the trace of the
   implementation against it.
 
+## The status of the release
+
+**Version 0.1 is a pre-production release.** It is implemented, it passes
+its own gates, and the compatibility harness runs it against the real
+gateway and the real hub — but it has never run outside its own
+harness. It has no production history, no external user, and no review
+that was written by somebody other than the author of the code. The
+trace of the implementation says "checked" and not "proved" for the same
+reason, and the review of the security of the service, with the
+findings that are still open, is in [`docs/security.md`](docs/security.md).
+
 ## The shape of the service
 
 ```
@@ -144,6 +155,7 @@ in the next request.
 | [`IMPLEMENTATION.md`](IMPLEMENTATION.md) | The milestones and the traceability matrix. |
 | [`docs/contract.md`](docs/contract.md) | The stable surface of the service: the contract of v1. |
 | [`CHANGELOG.md`](CHANGELOG.md) | The changes of the service. |
+| [`docs/security.md`](docs/security.md) | The model of the security, the review of it and the findings that are open. |
 | [`docs/decisions.md`](docs/decisions.md) | The choices of the implementation and their reasons. |
 | [`docs/operations.md`](docs/operations.md) | The probes, the metrics, the logs and the drain. |
 | [`docs/migrations.md`](docs/migrations.md) | The migrations and the drift. |

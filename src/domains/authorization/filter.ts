@@ -663,9 +663,13 @@ function evaluateTruth(
       case '_gte':
         return compareTyped(current.type, value, operand) >= 0
       case '_in':
-        return (current.values ?? []).some((entry) => compareTyped(current.type, value, entry) === 0)
+        return (current.values ?? []).some(
+          (entry) => compareTyped(current.type, value, entry) === 0
+        )
       case '_nin':
-        return !(current.values ?? []).some((entry) => compareTyped(current.type, value, entry) === 0)
+        return !(current.values ?? []).some(
+          (entry) => compareTyped(current.type, value, entry) === 0
+        )
       default:
         return false
     }
@@ -688,6 +692,7 @@ function evaluateTruth(
  * comparison that reads the two as numbers.
  */
 function compareTyped(type: FieldType | undefined, left: unknown, right: unknown): number {
+  if (type === undefined) return compareText(String(left), String(right))
   switch (type) {
     case 'integer':
       return compareInteger(left, right)
@@ -705,7 +710,6 @@ function compareTyped(type: FieldType | undefined, left: unknown, right: unknown
     case 'string':
     case 'text':
     case 'enum':
-    default:
       return compareText(String(left), String(right))
   }
 }

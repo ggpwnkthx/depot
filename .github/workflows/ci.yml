@@ -29,6 +29,8 @@ jobs:
           bun-version: 1.4.3
       - name: the installation
         run: bun install --frozen-lockfile
+      - name: the dependencies
+        run: bun audit
       - name: the types
         run: bun run typecheck
       - name: the style
@@ -39,6 +41,12 @@ jobs:
         run: bun run architecture
       - name: the rules of the domains
         run: bun test test/unit
+      - name: the fuzzing of the trust boundary
+        run: |
+          for seed in 1 2 3 4 5 6 7 8; do
+            FUZZ_SEED=$seed FUZZ_CASES=5000 bun test test/unit/fuzz.test.ts
+            FILTER_PROPERTY_SEED=$seed FILTER_PROPERTY_CASES=1500 FILTER_PROPERTY_ROWS=40 bun test test/integration/filter.property.test.ts
+          done
       - name: the contract of the api
         run: bun test test/contract
       - name: the architecture

@@ -94,7 +94,7 @@ What the numbers say:
   with several replicas scales the reads with the number of the
   replicas, and it scales the writes with the database.
 - **The worker.** The claims of the deliveries, the leases and the
-  retries are proved by the integration tests, and their capacity is
+  retries are checked by the integration tests, and their capacity is
   measured with the metrics of the outbox: `data_outbox_backlog` and
   `data_outbox_oldest_age_seconds`.
 - **The slow statements.** The measurement uses a small table. A
@@ -103,7 +103,7 @@ What the numbers say:
   collection.
 - **The maximum of the bounds.** The scenarios do not use a page of
   200 records, a filter of fifty predicates or an expansion of a
-  thousand rows. The bounds are proved by the contract tests, and the
+  thousand rows. The bounds are checked by the contract tests, and the
   answer of the service refuses them with `422 RESULT_TOO_LARGE`.
 
 ## The declaration of a deployment

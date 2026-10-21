@@ -28,7 +28,7 @@ runtime.worker?.start()
 runtime.logger.info('the service is ready', {
   role: runtime.settings.role,
   port: listener.port,
-  version: '0.1.0',
+  version: '0.1.0-alpha.1',
 })
 
 let closing = false
