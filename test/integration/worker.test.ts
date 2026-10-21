@@ -9,7 +9,9 @@ import { createMetrics } from '../../src/observability/metrics'
 import { systemClock } from '../../src/protocol/clock'
 import type { Subscriber } from '../../src/domains/events'
 import { ServiceError } from '../../src/protocol/errors'
-import type { WorkspaceRegistry } from '../../src/domains/workspaces'
+import { WorkspaceCatalogProvider } from '../../src/domains/catalog'
+import { parseManifestBundle } from '../../src/domains/schema'
+import { parsePolicyBundle } from '../../src/domains/authorization/policies'
 
 let database: TestDatabase
 let owner: Client
@@ -87,11 +89,21 @@ async function writeEvent(
   return eventId
 }
 
-/** The registry of the tests. */
-const registry: WorkspaceRegistry = {
-  findById: async (id: string) =>
-    id === WORKSPACE_ID ? { id, tenantId: TENANT_ID, status: 'active' } : null,
-}
+/** The manifest of the deployment. */
+const manifest = parseManifestBundle(await Bun.file('manifests/schema.json').text())
+/** The bundle of the deployment. */
+const bundle = parsePolicyBundle(await Bun.file('manifests/policies.json').text(), manifest)
+
+/** The catalog of the tests: the deployment registered nothing. */
+const catalog = new WorkspaceCatalogProvider({
+  store: {
+    findById: async (id: string) => ({
+      workspace: { id, tenantId: TENANT_ID, status: 'active' as const },
+      registry: { collections: [], bundle: null },
+    }),
+  },
+  deployment: { manifest, bundle },
+})
 
 /** A resolver of the tests. */
 const resolver = {
@@ -115,13 +127,12 @@ const resolver = {
 function worker(subscribers: readonly Subscriber[]): SubscriberWorker {
   return new SubscriberWorker({
     store,
-    registry,
     resolver,
+    catalog,
     records: {} as never,
     subscribers,
     principalId: PRINCIPAL_ID,
     routeId: 'data-worker',
-    policyBundleVersion: 'test',
     concurrency: 4,
     leaseMs: 30_000,
     heartbeatMs: 10_000,
@@ -259,17 +270,16 @@ describe('the execution of the deliveries', () => {
     const eventId = await writeEvent()
     const instance = new SubscriberWorker({
       store,
-      registry,
       resolver: {
         resolve: async () => {
           throw new ServiceError('FORBIDDEN')
         },
       },
+      catalog,
       records: {} as never,
       subscribers: [noop],
       principalId: PRINCIPAL_ID,
       routeId: 'data-worker',
-      policyBundleVersion: 'test',
       concurrency: 4,
       leaseMs: 30_000,
       heartbeatMs: 10_000,

@@ -209,7 +209,13 @@ export async function detectDrift(
       problems.push(`the table "${collection.table}" does not force its row level security`)
     }
   }
-  for (const table of ['platform.workspaces', 'platform.audit_entries', 'platform.outbox_events']) {
+  for (const table of [
+    'platform.workspaces',
+    'platform.audit_entries',
+    'platform.outbox_events',
+    'platform.collection_registry',
+    'platform.policy_bundles',
+  ]) {
     if (!protectedTables.has(table)) {
       problems.push(`the table "${table}" does not force its row level security`)
     }

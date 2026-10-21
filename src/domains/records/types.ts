@@ -175,8 +175,6 @@ export interface SubscriberLike {
 
 /** The dependencies of the records service. */
 export interface RecordsServiceOptions {
-  readonly manifest: import('../schema').ManifestBundle
-  readonly bundle: import('../authorization').PolicyBundle
   readonly store: DataStore
   readonly clock: Clock
   /** The key that signs the cursors. */

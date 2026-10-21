@@ -178,6 +178,7 @@ async function main(): Promise<void> {
       DATA_HUB_URL: hub.url,
       DATA_HUB_CONTEXT_TOKEN_FILE: tokenFile,
       DATA_CURSOR_KEY_FILE: cursorKeyFile,
+      DATA_CONTEXT_CACHE_TTL_MS: process.env.DATA_CONTEXT_CACHE_TTL_MS ?? '0',
     } as Record<string, string>,
   })
   const server = Bun.serve({ port, hostname: '127.0.0.1', fetch: runtime.app.fetch })

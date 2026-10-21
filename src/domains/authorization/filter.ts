@@ -58,6 +58,10 @@ export type FilterNode =
   | { readonly kind: 'and'; readonly nodes: readonly FilterNode[] }
   | { readonly kind: 'or'; readonly nodes: readonly FilterNode[] }
   | {
+      readonly kind: 'not'
+      readonly node: FilterNode
+    }
+  | {
       readonly kind: 'cmp'
       readonly field: string
       readonly operator: FilterOperator
@@ -296,6 +300,19 @@ function parseNode(
     return key === '_and' ? { kind: 'and', nodes } : { kind: 'or', nodes }
   }
 
+  if (key === '_not') {
+    // The negation of a predicate. It negates the whole subtree and not
+    // only a comparison: the null of a comparison is unknown, and the
+    // negation of an unknown is unknown. The evaluation in memory and
+    // the statement of the database agree on that, or they do not agree
+    // at all.
+    if (!isObject(raw)) {
+      throw new FilterError('the operator _not takes a filter', 'INVALID_FILTER')
+    }
+    const node = parseNode(raw, options, state, depth + 1)
+    return { kind: 'not', node }
+  }
+
   if ((FILTER_OPERATORS as readonly string[]).includes(key)) {
     throw new FilterError(`the operator ${key} needs a field`, 'INVALID_FILTER')
   }
@@ -367,6 +384,9 @@ function parseNode(
  */
 export function resolveSubstitutions(node: FilterNode, context: SubstitutionContext): FilterNode {
   if (node.kind === 'all') return node
+  if (node.kind === 'not') {
+    return { kind: 'not', node: resolveSubstitutions(node.node, context) }
+  }
   if (node.kind === 'cmp') {
     const substitute = (value: unknown): unknown => {
       if (value === '$principalId') return context.principalId
@@ -458,6 +478,11 @@ export function compileFilter(node: FilterNode, options: CompileFilterOptions): 
     }
     if (current.kind === 'or') {
       return `(${current.nodes.map(walk).join(' or ')})`
+    }
+    if (current.kind === 'not') {
+      // The negation of the database: the negation of an unknown is an
+      // unknown, and the row is not matched.
+      return `not (${walk(current.node)})`
     }
     const definition = options.fields[current.field]
     if (!definition) {
@@ -555,11 +580,51 @@ export function evaluateFilter(
   row: Readonly<Record<string, unknown>>,
   context: SubstitutionContext
 ): boolean {
+  return evaluateTruth(node, row, context) === true
+}
+
+/**
+ * The truth of a predicate: true, false, or unknown.
+ *
+ * The unknown is the third value of the logic of the database. It is not
+ * an answer that a caller may read: the predicate is true only when the
+ * database says it is true, and the negation of an unknown is an
+ * unknown.
+ */
+type Truth = boolean | null
+
+/** Evaluates a filter with the three valued logic of the database. */
+function evaluateTruth(
+  node: FilterNode,
+  row: Readonly<Record<string, unknown>>,
+  context: SubstitutionContext
+): Truth {
   const resolved = resolveSubstitutions(node, context)
-  const walk = (current: FilterNode): boolean => {
+  const walk = (current: FilterNode): Truth => {
     if (current.kind === 'all') return true
-    if (current.kind === 'and') return current.nodes.every(walk)
-    if (current.kind === 'or') return current.nodes.some(walk)
+    if (current.kind === 'not') {
+      const inner = walk(current.node)
+      if (inner === null) return null
+      return !inner
+    }
+    if (current.kind === 'and') {
+      let unknown = false
+      for (const entry of current.nodes) {
+        const value = walk(entry)
+        if (value === false) return false
+        if (value === null) unknown = true
+      }
+      return unknown ? null : true
+    }
+    if (current.kind === 'or') {
+      let unknown = false
+      for (const entry of current.nodes) {
+        const value = walk(entry)
+        if (value === true) return true
+        if (value === null) unknown = true
+      }
+      return unknown ? null : false
+    }
     const value = row[current.field]
     const operand = current.value
     if (current.operator === '_is_null') {
@@ -567,7 +632,7 @@ export function evaluateFilter(
     }
     // Every other operator compares a value with the null of the column:
     // the answer of the database is unknown and it is never true.
-    if (isNull(value)) return false
+    if (isNull(value)) return null
     switch (current.operator) {
       case '_eq':
         return valuesEqual(value, operand)

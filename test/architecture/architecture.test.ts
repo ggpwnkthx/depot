@@ -11,6 +11,7 @@ describe('the architecture of the service', () => {
     expect(Object.keys(DOMAIN_MATRIX).sort()).toEqual([
       'audit',
       'authorization',
+      'catalog',
       'events',
       'gateway-context',
       'records',

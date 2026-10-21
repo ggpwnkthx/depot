@@ -124,6 +124,8 @@ async function build(): Promise<TestDatabase> {
                 platform.idempotency_receipts restart identity cascade`
       )
       await client.query('delete from platform.workspaces')
+      await client.query('delete from platform.policy_bundles')
+      await client.query('delete from platform.collection_registry')
     } finally {
       await client.end()
     }

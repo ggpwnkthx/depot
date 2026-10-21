@@ -22,6 +22,7 @@ holds the identifier and the checksum of every applied migration.
 | `0003_collections.sql` | The collections of the example deployment: the categories, the articles and the statistics of the articles. |
 | `0004_isolation.sql` | The row level security, the composite relations and the privileges of the roles. |
 | `0005_operator_policies.sql` | The policies of the owner of the schema and of the maintenance role. |
+| `0006_catalog.sql` | The catalog of the workspaces: the registry of the collections and the history of the published bundles. |
 
 A migration that was applied is never changed: the checksum of the file
 is compared with the checksum of the ledger, and a difference is a drift

@@ -39,6 +39,8 @@ deployment on every record.
 | `bun run migrate` | Applies the migrations with the owner of the schema. |
 | `bun run workspace -- create --id <uuid> --tenant <uuid> --slug <slug>` | Creates a workspace. |
 | `bun run workspace -- list` | Lists the workspaces. |
+| `bun run collection -- register --workspace <uuid> --collection <key>` | Registers a collection for a workspace. |
+| `bun run policy -- publish --workspace <uuid> --file <path>` | Publishes the bundle of policies of a workspace. |
 | `bun run typecheck` | The types of the whole repository. |
 | `bun run lint` / `bun run format:check` | The style of the repository. |
 | `bun run architecture` | The boundaries of the domains. |
@@ -82,7 +84,6 @@ bun run start
 The service reads the bindings of the gateway from
 `DATA_SHUTTLE_BINDINGS_FILE`. The file holds the routes the deployment
 accepts and the file of the derived identity key of every route:
-
 ```json
 {
   "version": 1,
@@ -102,6 +103,38 @@ The identity key is the **derived** key of the gateway
 (`HMAC-SHA256(SHUTTLE_SESSION_SECRET, "shuttle-identity-signature-v1")`),
 in base64. It is a signing capable secret: it belongs inside the trust
 boundary of the gateway and it is never in the repository.
+
+## The catalog of a workspace
+
+The **catalog** of a workspace is what it serves: the collections it
+registered and the bundle of policies that applies to it. The deployment
+holds a default catalog — the manifest of the collections and the bundle
+of the policies of the deployment — and a workspace may hold its own.
+
+The catalog is a **logical registry**. It never creates a table and
+never alters one: the tables of the collections come from the reviewed
+migrations, their isolation is written in those migrations, and the role
+of the api may never alter them. A registration names a collection of
+the deployment and the table that the deployment declares for it.
+
+```bash
+# The collections a workspace serves.
+bun run collection -- register --workspace <uuid> --collection articles
+bun run collection -- list --workspace <uuid>
+
+# The bundle of policies of a workspace.
+bun run policy -- publish --workspace <uuid> --file policies.json
+bun run policy -- list --workspace <uuid>
+```
+
+Both commands are operator commands: they run on the machine of the
+deployment, they are not HTTP routes, and they never bypass Hub. The
+grants of a principal stay the business of Hub, and the bundles of the
+workspaces are the business of the operator.
+
+The catalog is read with the registry of the workspaces, in one
+statement, and nothing is cached: a bundle that was published is visible
+in the next request.
 
 ## The documentation
 

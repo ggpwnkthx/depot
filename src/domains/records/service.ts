@@ -90,17 +90,24 @@ export class RecordsService {
     this.#options = options
   }
 
-  /** The collection of a key, or null when the key is not registered. */
-  collection(key: string): CollectionDefinition | null {
-    return this.#options.manifest.collections.find((entry) => entry.key === key) ?? null
+  /**
+   * The collection of a key in the catalog of the workspace.
+   *
+   * The catalog of the workspace holds the collections it serves: a
+   * collection that the workspace did not register is not a collection
+   * of the service, and the answer is the answer of a collection that
+   * does not exist.
+   */
+  collection(context: RequestContext, key: string): CollectionDefinition | null {
+    return context.catalog.manifest.collections.find((entry) => entry.key === key) ?? null
   }
 
   /** The authorization input of a context. */
   #authorization(context: RequestContext): AuthorizationInput {
     return {
       permissionKeys: context.permissionKeys,
-      bundle: this.#options.bundle,
-      manifest: this.#options.manifest,
+      bundle: context.catalog.bundle,
+      manifest: context.catalog.manifest,
     }
   }
 
@@ -159,8 +166,8 @@ export class RecordsService {
   }
 
   /** Refuses a collection that is not registered. */
-  #requireCollection(key: string): CollectionDefinition {
-    const collection = this.collection(key)
+  #requireCollection(context: RequestContext, key: string): CollectionDefinition {
+    const collection = this.collection(context, key)
     if (!collection) {
       throw new ServiceError('NOT_FOUND')
     }
@@ -211,7 +218,7 @@ export class RecordsService {
     collectionKey: string,
     options: ListOptions
   ): Promise<ListResult> {
-    const collection = this.#requireCollection(collectionKey)
+    const collection = this.#requireCollection(context, collectionKey)
     const policies = this.#requireReadable(context, collection)
     const catalogue = catalogueFor(collection)
     const granted = this.#grantedFields(context, collection)
@@ -257,8 +264,8 @@ export class RecordsService {
             collection: collection.key,
             route: context.routeId,
             query: queryKey,
-            schemaVersion: this.#options.manifest.schemaVersion,
-            policyVersion: this.#options.bundle.bundleVersion,
+            schemaVersion: context.catalog.manifest.schemaVersion,
+            policyVersion: context.catalog.bundle.bundleVersion,
             permissions: [...context.permissionKeys].sort().join(','),
           },
           this.#options.clock.now()
@@ -331,8 +338,8 @@ export class RecordsService {
             query: queryKey,
             position: last.position ?? [],
             expiry: this.#options.clock.now() + CURSOR_LIFETIME_MS,
-            schemaVersion: this.#options.manifest.schemaVersion,
-            policyVersion: this.#options.bundle.bundleVersion,
+            schemaVersion: context.catalog.manifest.schemaVersion,
+            policyVersion: context.catalog.bundle.bundleVersion,
             permissions: [...context.permissionKeys].sort().join(','),
           },
           this.#options.cursorKey
@@ -358,7 +365,7 @@ export class RecordsService {
     collectionKey: string,
     id: string
   ): Promise<{ representation: Record<string, unknown>; etag: string }> {
-    const collection = this.#requireCollection(collectionKey)
+    const collection = this.#requireCollection(context, collectionKey)
     const policies = this.#requireReadable(context, collection)
     const catalogue = catalogueFor(collection)
     const selected = this.#grantedFields(context, collection).filter((field) => catalogue[field])
@@ -405,7 +412,7 @@ export class RecordsService {
     collectionKey: string,
     options: CreateOptions
   ): Promise<WriteResult> {
-    const collection = this.#requireCollection(collectionKey)
+    const collection = this.#requireCollection(context, collectionKey)
     this.#requireReadable(context, collection)
     const policies = applicablePolicies(this.#authorization(context), collection.key, 'create')
     if (policies.length === 0) {
@@ -586,7 +593,7 @@ export class RecordsService {
     collectionKey: string,
     options: UpdateOptions
   ): Promise<WriteResult> {
-    const collection = this.#requireCollection(collectionKey)
+    const collection = this.#requireCollection(context, collectionKey)
     const readPolicies = this.#requireReadable(context, collection)
     const writePolicies = applicablePolicies(this.#authorization(context), collection.key, 'update')
     if (writePolicies.length === 0) {
@@ -673,7 +680,7 @@ export class RecordsService {
     collectionKey: string,
     options: DeleteOptions
   ): Promise<WriteResult> {
-    const collection = this.#requireCollection(collectionKey)
+    const collection = this.#requireCollection(context, collectionKey)
     const readPolicies = this.#requireReadable(context, collection)
     const writePolicies = applicablePolicies(this.#authorization(context), collection.key, 'delete')
     if (writePolicies.length === 0) {
@@ -901,7 +908,7 @@ export class RecordsService {
       if (relation.type !== 'many-to-one') continue
       const value = values[relation.field]
       if (value === undefined || value === null) continue
-      const target = this.collection(relation.target)
+      const target = this.collection(context, relation.target)
       if (!target) continue
       const targetPolicies = this.#readPolicies(context, target.key)
       if (targetPolicies.length === 0) {
@@ -958,7 +965,7 @@ export class RecordsService {
         action: mutation.action,
         resultVersion: mutation.resultVersion,
         changedFields: mutation.changedFields,
-        policyBundleVersion: this.#options.bundle.bundleVersion,
+        policyBundleVersion: context.catalog.bundle.bundleVersion,
         policyId: mutation.policyId,
         causationEventId: context.causationId ?? null,
         causationPrincipalId: context.causationPrincipalId ?? null,
@@ -1016,7 +1023,7 @@ export class RecordsService {
         if (!row.relations.includes(name)) continue
         const relation = collection.relations[name]
         if (!relation) continue
-        const target = this.collection(relation.target)
+        const target = this.collection(context, relation.target)
         if (!target) continue
         const targetPolicies = this.#readPolicies(context, target.key)
         if (targetPolicies.length === 0) continue
@@ -1108,6 +1115,7 @@ export class RecordsService {
 function referencedFields(node: FilterNode): string[] {
   if (node.kind === 'all') return []
   if (node.kind === 'cmp') return [node.field]
+  if (node.kind === 'not') return referencedFields(node.node)
   return node.nodes.flatMap((entry) => referencedFields(entry))
 }
 

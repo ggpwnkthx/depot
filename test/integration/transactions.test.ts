@@ -40,6 +40,11 @@ afterAll(async () => {
   await pool?.close()
 })
 
+/** The manifest of the deployment. */
+const manifest = parseManifestBundle(await Bun.file('manifests/schema.json').text())
+/** The bundle of the deployment. */
+const bundle = parsePolicyBundle(await Bun.file('manifests/policies.json').text(), manifest)
+
 const context: RequestContext = {
   principalId: '11111111-1111-4111-8111-111111111111',
   tenantId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -50,6 +55,9 @@ const context: RequestContext = {
   source: 'shuttle',
   policyBundleVersion: 'test',
   authorizationDeadline: Number.MAX_SAFE_INTEGER,
+  // The catalog of the workspace: the manifest and the bundle of the
+  // deployment.
+  catalog: { manifest, bundle },
 }
 
 /** A store that fails on the statements that match a pattern. */
@@ -105,15 +113,11 @@ async function state(): Promise<{
 
 describe('the atomicity of a mutation', () => {
   test('a creation commits the record, the receipt, the audit and the event', async () => {
-    const manifest = parseManifestBundle(await Bun.file('manifests/schema.json').text())
-    const bundle = parsePolicyBundle(await Bun.file('manifests/policies.json').text(), manifest)
     const store = new PostgresDataStore(pool, {
       statementTimeoutMs: 3000,
       transactionTimeoutMs: 5000,
     })
     const records = new RecordsService({
-      manifest,
-      bundle,
       store,
       clock: systemClock,
       cursorKey: new Uint8Array(Buffer.from('cursor-key-of-the-tests-000000000000')),
@@ -141,15 +145,11 @@ describe('the atomicity of a mutation', () => {
   })
 
   test('a failure of the audit leaves nothing behind', async () => {
-    const manifest = parseManifestBundle(await Bun.file('manifests/schema.json').text())
-    const bundle = parsePolicyBundle(await Bun.file('manifests/policies.json').text(), manifest)
     const inner = new PostgresDataStore(pool, {
       statementTimeoutMs: 3000,
       transactionTimeoutMs: 5000,
     })
     const records = new RecordsService({
-      manifest,
-      bundle,
       store: inner,
       clock: systemClock,
       cursorKey: new Uint8Array(Buffer.from('cursor-key-of-the-tests-000000000000')),
@@ -170,15 +170,11 @@ describe('the atomicity of a mutation', () => {
   })
 
   test('a failure of the event leaves nothing behind', async () => {
-    const manifest = parseManifestBundle(await Bun.file('manifests/schema.json').text())
-    const bundle = parsePolicyBundle(await Bun.file('manifests/policies.json').text(), manifest)
     const inner = new PostgresDataStore(pool, {
       statementTimeoutMs: 3000,
       transactionTimeoutMs: 5000,
     })
     const records = new RecordsService({
-      manifest,
-      bundle,
       store: inner,
       clock: systemClock,
       cursorKey: new Uint8Array(Buffer.from('cursor-key-of-the-tests-000000000000')),
@@ -199,15 +195,11 @@ describe('the atomicity of a mutation', () => {
   })
 
   test('a failure of the receipt leaves nothing behind', async () => {
-    const manifest = parseManifestBundle(await Bun.file('manifests/schema.json').text())
-    const bundle = parsePolicyBundle(await Bun.file('manifests/policies.json').text(), manifest)
     const inner = new PostgresDataStore(pool, {
       statementTimeoutMs: 3000,
       transactionTimeoutMs: 5000,
     })
     const records = new RecordsService({
-      manifest,
-      bundle,
       store: failingStore(inner, /idempotency_receipts/),
       clock: systemClock,
       cursorKey: new Uint8Array(Buffer.from('cursor-key-of-the-tests-000000000000')),
@@ -224,15 +216,11 @@ describe('the atomicity of a mutation', () => {
   })
 
   test('a failure of the business insert leaves nothing behind', async () => {
-    const manifest = parseManifestBundle(await Bun.file('manifests/schema.json').text())
-    const bundle = parsePolicyBundle(await Bun.file('manifests/policies.json').text(), manifest)
     const inner = new PostgresDataStore(pool, {
       statementTimeoutMs: 3000,
       transactionTimeoutMs: 5000,
     })
     const records = new RecordsService({
-      manifest,
-      bundle,
       store: failingStore(inner, /insert into data\.articles/),
       clock: systemClock,
       cursorKey: new Uint8Array(Buffer.from('cursor-key-of-the-tests-000000000000')),

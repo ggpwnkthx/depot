@@ -12,6 +12,8 @@
     "dev": "bun --watch src/main.ts",
     "migrate": "bun run scripts/migrate.ts",
     "workspace": "bun run scripts/workspace.ts",
+    "policy": "bun run scripts/policy.ts",
+    "collection": "bun run scripts/collection.ts",
     "delivery": "bun run scripts/delivery.ts",
     "typecheck": "tsc --noEmit",
     "lint": "biome lint .",

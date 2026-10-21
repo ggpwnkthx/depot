@@ -12,6 +12,7 @@ import { createApp } from '../../src/app/app'
 import { ContextResolver } from '../../src/domains/authorization'
 import { parsePolicyBundle } from '../../src/domains/authorization/policies'
 import { HubAccessContextClient } from '../../src/domains/authorization/adapters/hub-access-context'
+import { WorkspaceCatalogProvider } from '../../src/domains/catalog'
 import type { ResolvedBinding } from '../../src/domains/gateway-context'
 import { RecordsService } from '../../src/domains/records'
 import { parseManifestBundle } from '../../src/domains/schema'
@@ -19,8 +20,8 @@ import {
   PostgresAuditReader,
   PostgresAuditSink,
   PostgresOutbox,
-  PostgresWorkspaceRegistry,
 } from '../../src/platform/postgres/adapters'
+import { PostgresCatalogStore } from '../../src/platform/postgres/catalog'
 import { ConnectionPool } from '../../src/platform/postgres/database'
 import { PostgresDataStore } from '../../src/platform/postgres/scoped'
 import { createLogger } from '../../src/observability/logger'
@@ -113,7 +114,6 @@ export async function createHarness(options: { policies?: string } = {}): Promis
     statementTimeoutMs: 3000,
     transactionTimeoutMs: 5000,
   })
-  const registry = new PostgresWorkspaceRegistry(registryPool)
   const audit = new PostgresAuditSink()
   const auditReader = new PostgresAuditReader(store)
   const outbox = new PostgresOutbox()
@@ -131,14 +131,17 @@ export async function createHarness(options: { policies?: string } = {}): Promis
   })
 
   const records = new RecordsService({
-    manifest,
-    bundle,
     store,
     clock: systemClock,
     cursorKey: new Uint8Array(Buffer.from('cursor-key-of-the-tests-000000000000', 'utf8')),
     audit,
     outbox,
     subscribers: [],
+  })
+
+  const catalog = new WorkspaceCatalogProvider({
+    store: new PostgresCatalogStore(registryPool),
+    deployment: { manifest, bundle },
   })
 
   const bindings: ResolvedBinding[] = [
@@ -162,10 +165,8 @@ export async function createHarness(options: { policies?: string } = {}): Promis
     },
     records,
     resolver,
-    registry,
     bindings,
-    manifest,
-    bundle,
+    catalog,
     auditReader,
     metrics: createMetrics(),
     logger: createLogger({ level: 'debug' }),

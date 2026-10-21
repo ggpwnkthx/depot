@@ -9,12 +9,14 @@
 
 import { readFile } from 'node:fs/promises'
 import { systemClock } from '../protocol/clock'
+import { ServiceError } from '../protocol/errors'
 import { createLogger, type Logger } from '../observability/logger'
 import { createMetrics } from '../observability/metrics'
 import { createApp } from '../app/app'
 import { ContextResolver } from '../domains/authorization'
 import { parsePolicyBundle } from '../domains/authorization'
 import { HubAccessContextClient } from '../domains/authorization/adapters/hub-access-context'
+import { WorkspaceCatalogProvider } from '../domains/catalog'
 import { type ResolvedBinding, parseBindingsFile } from '../domains/gateway-context'
 import { RecordsService } from '../domains/records'
 import { parseManifestBundle } from '../domains/schema'
@@ -23,8 +25,8 @@ import {
   PostgresAuditSink,
   PostgresDeliveryStore,
   PostgresOutbox,
-  PostgresWorkspaceRegistry,
 } from '../platform/postgres/adapters'
+import { PostgresCatalogStore } from '../platform/postgres/catalog'
 import { ConnectionPool } from '../platform/postgres/database'
 import { loadMigrations } from '../platform/postgres/migrations'
 import { PostgresDataStore } from '../platform/postgres/scoped'
@@ -123,7 +125,6 @@ export async function createRuntime(options: CompositionOptions = {}): Promise<R
     transactionTimeoutMs: settings.database.transactionTimeoutMs,
     metrics,
   })
-  const registry = new PostgresWorkspaceRegistry(registryPool)
   const auditSink = new PostgresAuditSink()
   const auditReader = new PostgresAuditReader(store)
   const outbox = new PostgresOutbox()
@@ -144,6 +145,13 @@ export async function createRuntime(options: CompositionOptions = {}): Promise<R
     metrics,
   })
 
+  // The catalog of the workspaces: the collections a workspace serves
+  // and the bundle of policies that applies to it.
+  const catalog = new WorkspaceCatalogProvider({
+    store: new PostgresCatalogStore(registryPool),
+    deployment: { manifest, bundle },
+  })
+
   // The records.
   const cursorKey = new Uint8Array(
     Buffer.from((await readFile(settings.cursorKeyFile, 'utf8')).trim(), 'utf8')
@@ -158,8 +166,6 @@ export async function createRuntime(options: CompositionOptions = {}): Promise<R
     },
   ]
   const records = new RecordsService({
-    manifest,
-    bundle,
     store,
     clock: systemClock,
     cursorKey,
@@ -174,6 +180,10 @@ export async function createRuntime(options: CompositionOptions = {}): Promise<R
     articleProjectionSubscriber({
       records,
       contextFor: async (event) => {
+        const found = await catalog.find(event.workspaceId)
+        if (!found) {
+          throw new ServiceError('FORBIDDEN')
+        }
         const resolved = await resolver.resolve(
           {
             subject: settings.worker.principalId,
@@ -185,11 +195,16 @@ export async function createRuntime(options: CompositionOptions = {}): Promise<R
             fresh: true,
             source: 'worker',
             requestId: `worker-${event.eventId}`,
-            policyBundleVersion: bundle.bundleVersion,
+            policyBundleVersion: found.catalog.policyBundleVersion,
           }
         )
         return {
           ...resolved.context,
+          policyBundleVersion: found.catalog.policyBundleVersion,
+          catalog: {
+            manifest: found.catalog.manifest,
+            bundle: found.catalog.bundle,
+          },
           causationId: event.eventId,
           causationDepth: event.causationDepth + 1,
           causationPrincipalId: event.actorId,
@@ -220,10 +235,8 @@ export async function createRuntime(options: CompositionOptions = {}): Promise<R
     },
     records,
     resolver,
-    registry,
     bindings,
-    manifest,
-    bundle,
+    catalog,
     auditReader,
     metrics,
     logger,
@@ -236,13 +249,12 @@ export async function createRuntime(options: CompositionOptions = {}): Promise<R
     settings.role === 'worker' || settings.role === 'all'
       ? new SubscriberWorker({
           store: deliveryStore,
-          registry,
           resolver,
+          catalog,
           records,
           subscribers: boundSubscribers,
           principalId: settings.worker.principalId,
           routeId: settings.worker.routeId,
-          policyBundleVersion: bundle.bundleVersion,
           concurrency: settings.worker.concurrency,
           leaseMs: 30_000,
           heartbeatMs: 10_000,

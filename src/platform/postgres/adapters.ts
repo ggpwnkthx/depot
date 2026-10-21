@@ -10,38 +10,7 @@ import { randomUUID } from 'node:crypto'
 import type { AuditEntry, AuditPage, AuditReader, AuditSink } from '../../domains/audit'
 import type { Delivery, DomainEvent, Outbox, Subscriber } from '../../domains/events'
 import type { DataStore, SubscriberLike, UnitOfWork } from '../../domains/records'
-import type { WorkspaceIdentity, WorkspaceRegistry } from '../../domains/workspaces'
 import type { ConnectionPool } from './database'
-
-/** The reader of the registry of the workspaces. */
-export class PostgresWorkspaceRegistry implements WorkspaceRegistry {
-  readonly #pool: ConnectionPool
-
-  constructor(pool: ConnectionPool) {
-    this.#pool = pool
-  }
-
-  /**
-   * Reads the identity of a workspace.
-   *
-   * The statement reads three columns: the role of the reader may not
-   * select anything else, and the reader may not enumerate the
-   * workspaces.
-   */
-  async findById(id: string): Promise<WorkspaceIdentity | null> {
-    const rows = await this.#pool.query<{ id: string; tenant_id: string; status: string }>(
-      'select id, tenant_id, status from platform.workspaces where id = $1::uuid',
-      [id]
-    )
-    const row = rows[0]
-    if (!row) return null
-    return {
-      id: row.id,
-      tenantId: row.tenant_id,
-      status: row.status === 'disabled' ? 'disabled' : 'active',
-    }
-  }
-}
 
 /** The writer of the audit log. */
 export class PostgresAuditSink implements AuditSink {

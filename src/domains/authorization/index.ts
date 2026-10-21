@@ -13,6 +13,8 @@
 import type { Clock } from '../../protocol/clock'
 import { ServiceError } from '../../protocol/errors'
 import type { Metrics } from '../../observability/metrics'
+import type { ManifestBundle } from '../schema'
+import type { PolicyBundle } from './policies'
 import {
   type AccessContext,
   type AccessContextClient,
@@ -48,6 +50,7 @@ export {
   POLICY_BUNDLE_VERSION,
   type Policy,
   type PolicyBundle,
+  bundleVersionOf,
   parsePolicyBundle,
 } from './policies'
 export {
@@ -79,13 +82,39 @@ export {
   selectWritePolicy,
 } from './rules'
 
+/**
+ * The catalog a request works with.
+ *
+ * The catalog is the manifest of the workspace and the bundle of the
+ * policies that applies to it. It is resolved once per request, before
+ * the first domain operation, and it is carried by the context: every
+ * operation of the request sees the same collections and the same
+ * policies, and a policy that was published in the middle of a request
+ * does not change the answer of that request.
+ */
+export interface RequestCatalog {
+  /** The manifest of the workspace. */
+  readonly manifest: ManifestBundle
+  /** The bundle that applies to the workspace. */
+  readonly bundle: PolicyBundle
+}
+
 /** The resolved context of a request. */
 export interface ResolvedContext {
-  /** The context the domain operations receive. */
-  readonly context: RequestContext
+  /**
+   * The context the domain operations receive.
+   *
+   * The resolver knows the principal and the permissions, and nothing of
+   * the workspace: the caller that resolved the catalog of the workspace
+   * completes the context with it.
+   */
+  readonly context: ResolvedRequestContext
   /** The moment the context stops being usable, on the monotonic clock. */
   readonly deadline: number
 }
+
+/** The context of a request, without the catalog. */
+export type ResolvedRequestContext = Omit<RequestContext, 'catalog'>
 
 /** The context every domain operation receives (spec §6.2). */
 export interface RequestContext {
@@ -97,6 +126,8 @@ export interface RequestContext {
   readonly requestId: string
   readonly source: 'shuttle' | 'worker'
   readonly policyBundleVersion: string
+  /** The catalog of the workspace: the manifest and the bundle of the request. */
+  readonly catalog: RequestCatalog
   /** The deadline of the authorization, on the monotonic clock. */
   readonly authorizationDeadline: number
   /** The event that caused the command, when a worker made it. */
@@ -182,7 +213,15 @@ export class ContextResolver {
       fresh: boolean
       source: 'shuttle' | 'worker'
       requestId: string
-      policyBundleVersion: string
+      /**
+       * The version of the bundle of the request.
+       *
+       * The caller that resolved the catalog of the workspace overwrites
+       * the version with the effective one: the resolver does not know
+       * the catalog, and the version it stamps is the one of the
+       * deployment.
+       */
+      policyBundleVersion?: string
     }
   ): Promise<ResolvedContext> {
     const started = this.#options.clock.now()
@@ -231,7 +270,7 @@ export class ContextResolver {
   /** Builds the resolved context of a cached entry. */
   #toResolved(
     entry: CacheEntry,
-    options: { source: 'shuttle' | 'worker'; requestId: string; policyBundleVersion: string }
+    options: { source: 'shuttle' | 'worker'; requestId: string; policyBundleVersion?: string }
   ): ResolvedContext {
     if (!entry.context.allow) {
       throw new ServiceError('FORBIDDEN')
@@ -245,7 +284,7 @@ export class ContextResolver {
         permissionKeys: entry.context.permissionKeys,
         requestId: options.requestId,
         source: options.source,
-        policyBundleVersion: options.policyBundleVersion,
+        policyBundleVersion: options.policyBundleVersion ?? '',
         authorizationDeadline: entry.deadline,
       },
       deadline: entry.deadline,

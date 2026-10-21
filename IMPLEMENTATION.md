@@ -57,6 +57,13 @@ one of them has to be green before a release.
 | The update checks the row before and the row after (§8.3) | `src/domains/records/service.ts` | `test/unit/authorization.test.ts` (the write that moves the row) | `bun test test/unit` | proved |
 | The relations are expanded with the policies of the target (§8.4) | `src/domains/records/service.ts` | `test/contract/http.test.ts` | `bun test test/contract` | proved |
 | The metadata is filtered and it never carries a SQL identifier (§9.2) | `src/app/schema-metadata.ts` | `test/contract/http.test.ts` | `bun test test/contract` | proved |
+| A workspace serves the collections it registered, and nothing else (§7.6) | `src/domains/catalog/index.ts`, `src/domains/records/service.ts` | `test/unit/catalog.test.ts`, `test/contract/catalog.test.ts` | `bun test test/unit test/contract` | proved |
+| A registration never creates or alters a table, and a registration that names another table is refused (§7.6) | `src/domains/catalog/index.ts`, `migrations/0006_catalog.sql` | `test/unit/catalog.test.ts`, `test/integration/catalog.test.ts` | `bun test test/unit test/integration` | proved |
+| The registry of a workspace is read with the registry of the workspaces, and another workspace is invisible (§7.6) | `src/platform/postgres/catalog.ts`, `migrations/0006_catalog.sql` | `test/integration/catalog.test.ts` (the row level security, the narrow reader) | `bun test test/integration` | proved |
+| The bundle a workspace published applies, and a bundle that cannot be used fails closed (§8.6) | `src/domains/catalog/index.ts` | `test/unit/catalog.test.ts`, `test/contract/catalog.test.ts` | `bun test test/unit test/contract` | proved |
+| The catalog is memoized with the fingerprint of its inputs, and an edited bundle is parsed again (§8.6) | `src/domains/catalog/index.ts` | `test/unit/catalog.test.ts`, `test/contract/catalog.test.ts` | `bun test test/unit test/contract` | proved |
+| The publication of a bundle is an operator command and never an HTTP route (§8.6) | `scripts/policy.ts`, `scripts/collection.ts` | the absence of a route in `src/app/app.ts` and the command itself | `bun run architecture`, `bun test test/contract` | proved |
+| The negation of a predicate follows the three valued logic of the database (§9.3) | `src/domains/authorization/filter.ts` | `test/integration/filter.test.ts` (the differential test against the server), `test/unit/authorization.test.ts` | `bun test test/integration test/unit` | proved |
 
 ### The API and the transactions (§9, §10)
 
@@ -111,12 +118,12 @@ one of them has to be green before a release.
 
 | The suite | The command | The result of the last run |
 | --- | --- | --- |
-| The rules of the domains | `bun test test/unit` | 48 passed |
-| The contract of the API | `bun test test/contract` | 50 passed |
-| The database, the transactions and the worker | `bun test test/integration` | 30 passed |
+| The rules of the domains | `bun test test/unit` | 66 passed |
+| The contract of the API | `bun test test/contract` | 55 passed |
+| The database, the transactions and the worker | `bun test test/integration` | 38 passed |
 | The boundaries of the code | `bun test test/architecture` | 2 passed |
 | The consumer of the client | `bun test packages/client/test` | 9 passed |
-| The whole repository | `bun run test:all` | 139 passed |
+| The whole repository | `bun run test:all` | 170 passed |
 | The gateway, the hub and the backend | `bun run test:compat` | 21 steps, passed |
 | The capacity | `bun run scripts/capacity.ts` | four scenarios, the report of `docs/capacity.md` |
 

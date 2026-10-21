@@ -210,7 +210,7 @@ export function parsePolicyBundle(raw: string, manifest: ManifestBundle): Policy
   return {
     version: POLICY_BUNDLE_VERSION,
     policies,
-    bundleVersion: contentVersionOf(policies),
+    bundleVersion: bundleVersionOf(policies),
   }
 }
 
@@ -234,8 +234,15 @@ function parsePredicate(
   }
 }
 
-/** The content derived version of a bundle. */
-function contentVersionOf(policies: readonly Policy[]): string {
+/**
+ * The content derived version of a bundle.
+ *
+ * The version is the digest of the policies it holds: two bundles with
+ * the same policies have the same version, and a change of a policy
+ * changes the version. The version is what a cursor binds and what the
+ * audit log records.
+ */
+export function bundleVersionOf(policies: readonly Policy[]): string {
   const canonical = canonicalJson(
     policies.map((policy) => ({
       id: policy.id,

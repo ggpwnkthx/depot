@@ -144,6 +144,43 @@ cancellation: the statement timeout is a server side cancellation, and
 the transaction timeout destroys the connection, so the server rolls
 the transaction back.
 
+## The catalog of the workspaces
+
+The catalog of a workspace is what it serves: the collections it
+registered and the bundle of policies that applies to it. Both are
+changed with the commands of the operator, with the credentials of the
+owner of the schema:
+
+```bash
+# The collections a workspace serves.
+DATA_OWNER_DATABASE_URL=... bun run collection -- register \
+  --workspace 22222222-2222-4222-8222-222222222222 --collection articles
+DATA_OWNER_DATABASE_URL=... bun run collection -- list \
+  --workspace 22222222-2222-4222-8222-222222222222
+
+# The bundle of policies of a workspace.
+DATA_OWNER_DATABASE_URL=... bun run policy -- publish \
+  --workspace 22222222-2222-4222-8222-222222222222 --file policies.json
+DATA_OWNER_DATABASE_URL=... bun run policy -- list \
+  --workspace 22222222-2222-4222-8222-222222222222
+```
+
+The commands never create a table and never alter one: the tables of
+the collections come from the reviewed migrations of the deployment.
+The registration of a collection and the publication of a bundle are
+local administrative entry points, and they are not HTTP routes that
+bypass Hub: a bundle says what a permission grants, and the grants of a
+principal are the business of Hub.
+
+A bundle is validated against the manifest of the deployment before it
+is published, and it is parsed again when it is resolved: a bundle that
+cannot be used never applies, and the service fails closed. The
+publications are kept: a version is never changed and never removed.
+
+The catalog is read with the registry of the workspaces, in one
+statement, and nothing is cached: a bundle that was published is visible
+in the next request.
+
 ## The rotation of the secrets
 
 | Secret | Where it lives | The rotation |

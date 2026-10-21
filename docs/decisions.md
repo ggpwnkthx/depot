@@ -211,3 +211,102 @@ record is a metric that drifts from the truth. The specification asks
 for the duration of the hub, for the hits of the cache and for the
 rollbacks, and the component that holds the event is the only one that
 can count it without a guess.
+
+## 17. The catalog of a workspace is a logical registry over the tables of the deployment
+
+A workspace registers the collections of the deployment that it serves,
+and it publishes the bundle of policies that applies to it. The
+registration never creates a table and never names one that the
+deployment does not declare.
+
+**Why.** The physical schema is the strongest property of the service:
+the tables come from reviewed migrations, their isolation is written in
+those migrations, the role of the api may not alter them, and the
+readiness compares the manifest with the deployed schema and refuses the
+drift. A registry that created a table per tenant would give all of
+that away: the policies of the isolation would have to be written at
+runtime, on tables that no migration describes, and the drift of the
+schema would have nothing to compare against. The registry keeps the
+physical schema global and reviewed, and it makes the *logical* schema
+per workspace, which is what a customer of the platform actually asks
+for.
+
+The cost is that a workspace cannot have a field that another workspace
+does not have. The tables of the deployment are the vocabulary of the
+platform, and a deployment that needs another vocabulary adds a
+migration: the review of the change stays where it belongs.
+
+A workspace that registered nothing serves every collection of the
+deployment. The default of a deployment that has not used the registry
+yet is the deployment itself, and a deployment that starts to use it
+does not change the behaviour of the workspaces that did not.
+
+## 18. The publication of a bundle is an operator command and not an HTTP route
+
+A bundle of policies is published with a command of the operator, on the
+machine of the deployment. There is no endpoint that writes a bundle.
+
+**Why.** A bundle says what a permission grants. An endpoint that
+publishes a bundle is an authority that does not go through Hub, and it
+would have to be guarded by a permission of its own: a tenant that can
+publish a bundle can grant itself the read of every field of every
+collection, and the isolation of the workspaces would hold only as long
+as that endpoint is closed. The command runs with the credentials of the
+owner of the schema, it is on the machine of the operator, and it leaves
+a history of the publications that the audit log of the records points
+at. The grants of a principal stay the business of Hub, and the two
+authorities do not mix.
+
+The cost is that a tenant cannot change its own policies through the
+api. A studio that edits the policies of a workspace will need an
+endpoint, and that endpoint will need an authority of its own, defined
+in the hub and not in the deployment.
+
+## 19. The negation of a predicate keeps the three valued logic of the database
+
+The operator `_not` negates a whole predicate, and the negation of an
+unknown is an unknown: a row whose value is null is never matched by a
+negated comparison. The evaluation in memory carries the third value
+explicitly, and the statement of the database carries it natively.
+
+**Why.** The two evaluations of a predicate have to answer the same
+question about the same row: the reads compile the predicate into SQL
+and the writes evaluate it in memory over the row that is locked. The
+negation is the first operator that forces the unknown to be a value of
+its own: `not (a = 1 and b = 2)` is unknown when `b` is null, and a
+negation that treated the unknown as a false would let a caller write a
+record that the read hides. The differential test carries the cases of
+the negation, and it runs them against a real server: the two answers
+have to be the same, row by row.
+
+## 20. The catalog is read with the registry of the workspaces, and it is carried by the context
+
+The narrow reader of the registry reads the workspace **and** the
+registry of its catalog in one statement, and the application puts the
+resolved catalog in the context that the domain operations receive. The
+records service reads the manifest and the bundle of the context, and
+it never resolves them itself.
+
+**Why.** The registry of the workspaces is on the path of every
+request: the service needs the tenant of the workspace before it asks
+the hub. The catalog is the configuration of the workspace, and it is
+read with it: a second round trip for the catalog would double the
+work of the registry pool, which is the smallest pool of the
+deployment, and the measurement showed a third of the throughput of the
+read path. The statement that reads both costs a tenth of a
+millisecond more than the statement that read the workspace alone.
+
+The catalog is carried by the context because it is the same for every
+operation of a request: a bundle that was published in the middle of a
+request does not change the answer of that request, and the cursors,
+the audit entries and the statements of the request all name the same
+versions. A service that resolved the catalog itself would have to
+answer the question "which bundle applies" in a second place.
+
+The resolved catalog is memoized in the process, and the fingerprint of
+its inputs is the key: the collections that the workspace registered
+and the digest of the bundle it published. The memoization removes the
+parsing of the bundle from the path of the request, and it does not
+weaken the guarantee: a bundle that was edited in the database has
+another digest, and it is parsed again and refused when it cannot be
+used.

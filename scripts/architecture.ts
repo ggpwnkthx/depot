@@ -26,6 +26,7 @@ export const DOMAIN_MATRIX: Readonly<Record<string, readonly string[]>> = {
   schema: [],
   audit: [],
   events: [],
+  catalog: ['schema', 'authorization', 'workspaces'],
   authorization: ['gateway-context', 'workspaces', 'schema'],
   records: ['gateway-context', 'workspaces', 'schema', 'authorization', 'audit', 'events'],
 }

@@ -7,6 +7,8 @@
  * change with the deployment and because they depend on the caller.
  */
 
+import { ERROR_CODES } from '../protocol/errors'
+
 /** The description of the API. */
 export function openapiDocument(schemaVersion: string): Record<string, unknown> {
   return {
@@ -192,7 +194,11 @@ export function openapiDocument(schemaVersion: string): Record<string, unknown> 
               type: 'object',
               required: ['code', 'message'],
               properties: {
-                code: { type: 'string' },
+                code: {
+                  type: 'string',
+                  description: 'The stable, machine readable code of the error.',
+                  enum: [...ERROR_CODES],
+                },
                 message: { type: 'string' },
                 details: {
                   type: 'array',

@@ -53,6 +53,25 @@ describe('the grammar of a filter', () => {
     expect(evaluateFilter(node, { title: 'x' }, context)).toBe(true)
   })
 
+  test('it accepts the negation of a predicate', () => {
+    const node = parseFilter({ _not: { title: { _eq: 'Launch notes' } } }, { fields: catalogue })
+    expect(node.kind).toBe('not')
+    expect(evaluateFilter(node, { title: 'Other' }, context)).toBe(true)
+    expect(evaluateFilter(node, { title: 'Launch notes' }, context)).toBe(false)
+  })
+
+  test('the negation of an unknown is an unknown', () => {
+    const node = parseFilter({ _not: { body: { _eq: 'x' } } }, { fields: catalogue })
+    // The body is null: the comparison is unknown, and the negation of an
+    // unknown never matches a row.
+    expect(evaluateFilter(node, { title: 'x', body: null }, context)).toBe(false)
+  })
+
+  test('it refuses a negation that is not a filter', () => {
+    expect(() => parseFilter({ _not: 'title' }, { fields: catalogue })).toThrow()
+    expect(() => parseFilter({ _not: 3 }, { fields: catalogue })).toThrow()
+  })
+
   test('it refuses an unknown field', () => {
     expect(() => parseFilter({ secret: { _eq: 'x' } }, { fields: catalogue })).toThrow()
   })

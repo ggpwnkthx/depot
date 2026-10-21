@@ -7,9 +7,10 @@
  * backend does not own the identity of a tenant and it does not own the
  * grants of a principal.
  *
- * The registry is read before the context of a request exists. That read
- * is a narrow bootstrap exception: the adapter may only read the identity
- * of a workspace, and it may only look one workspace up by its exact id.
+ * The identity of a workspace is read before the context of a request
+ * exists. That read is a narrow bootstrap exception: the adapter may
+ * only read the identity of a workspace and the catalog of the
+ * workspace, and it may only look one workspace up by its exact id.
  */
 
 /** The state of a workspace. */
@@ -23,18 +24,6 @@ export interface WorkspaceIdentity {
   readonly tenantId: string
   /** The state of the workspace. */
   readonly status: WorkspaceStatus
-}
-
-/**
- * The reader of the registry.
- *
- * The port has exactly one method, and that method takes the exact
- * identifier of a workspace: the reader cannot enumerate the workspaces
- * of a tenant and it cannot run a query of its own.
- */
-export interface WorkspaceRegistry {
-  /** Reads the identity of a workspace, or null when there is none. */
-  findById: (id: string) => Promise<WorkspaceIdentity | null>
 }
 
 /** The slug of a workspace: 1 to 63 characters, in a tenant unique. */

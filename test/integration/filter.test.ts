@@ -84,6 +84,29 @@ const PREDICATES: readonly { name: string; filter: unknown }[] = [
     name: 'a_json_with_another_order',
     filter: { payload: { _eq: { b: 2, a: 1 } } },
   },
+  {
+    // The negation of a comparison: the row whose label is null is not
+    // matched, because the comparison is unknown and the negation of an
+    // unknown is an unknown.
+    name: 'the_negation_of_a_comparison',
+    filter: { _not: { label: { _eq: 'alpha' } } },
+  },
+  {
+    name: 'the_negation_of_a_disjunction',
+    filter: { _not: { _or: [{ label: { _eq: 'alpha' } }, { flag: { _eq: true } }] } },
+  },
+  {
+    name: 'the_negation_of_a_conjunction',
+    filter: { _not: { _and: [{ label: { _eq: 'alpha' } }, { amount: { _eq: 10 } }] } },
+  },
+  {
+    name: 'the_negation_of_a_null',
+    filter: { _not: { label: { _is_null: true } } },
+  },
+  {
+    name: 'a_negation_inside_a_disjunction',
+    filter: { _or: [{ _not: { label: { _eq: 'alpha' } } }, { label: { _eq: 'gamma' } }] },
+  },
 ]
 
 test('the two evaluations of a predicate agree', async () => {

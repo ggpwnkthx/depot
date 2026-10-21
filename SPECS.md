@@ -84,6 +84,7 @@ Collection metadata may contain semantic labels and descriptions. Widget identif
 | Hub integration | Obtain authoritative, current access context through the proposed contract in section 5. |
 | Workspaces | Maintain workspace-to-tenant ownership and enabled/disabled state. |
 | Registered collections | Load declarative collection manifests backed by reviewed SQL migrations. |
+| Catalog of a workspace | Register the collections a workspace serves and publish the bundle of policies that applies to it, without altering the physical schema. |
 | Headless metadata | Return policy-filtered collection, field, relation, and action metadata. |
 | Record API | Create, list, fetch, update, and delete records with bounded queries and optimistic concurrency. |
 | Authorization | Enforce tenant/workspace isolation, action permissions, row predicates, field visibility, and write checks. |
@@ -102,7 +103,8 @@ Collection metadata may contain semantic labels and descriptions. Widget identif
 | Webhooks, schedules, configurable workflows | Delivery/jobs domains using outbox events and explicit service-principal authority. |
 | GraphQL | Another transport over the same query and command services. |
 | Aggregations, bulk writes, exports, full-text search | Bounded operations using the same row and field rules; no separate privileged query path. |
-| Runtime schema editing and arbitrary database introspection | Versioned schema-management contract and reviewed migration workflow. |
+| Runtime schema editing and arbitrary database introspection | Versioned schema-management contract and reviewed migration workflow. The catalog of a workspace is a logical registry and it never creates or alters a table. |
+| Editing the policies of a workspace over HTTP | The publication of a bundle is an operator command. An endpoint that writes policies would be an authority that bypasses Hub, and the grants of a principal stay the business of Hub. |
 | Marketplace or uploaded extensions | Explicit execution and trust model. Version 0.1 only allows code registered by the deployer. |
 | MCP and AI features | Clients/adapters invoking authorized domain operations. |
 | Additional database engines | Storage adapters after their transaction, isolation, and query semantics are specified. |
@@ -363,7 +365,7 @@ All domain operations receive this context explicitly. Ambient global tenant sta
 The order is:
 
 1. Verify gateway proof.
-2. Look up the exact workspace UUID in the registry.
+2. Look up the exact workspace UUID in the registry, together with the catalog of the workspace.
 3. Reject an unknown/disabled workspace with `404 NOT_FOUND`.
 4. Check any binding-level tenant restriction.
 5. Ask Hub for context using the registry's tenant ID.
@@ -371,6 +373,8 @@ The order is:
 7. Execute a scoped domain operation.
 
 The pre-context registry lookup is a narrow bootstrap exception. Its SQL role may select only `id`, `tenant_id`, and `status` from the registry. A registry-reader-only SELECT policy permits that projection before tenant scope is established; ordinary data roles retain the scoped policy. Its adapter exposes only lookup-by-exact-UUID; it cannot expose enumeration or arbitrary queries to callers. It has no business-table access.
+
+The catalog of the workspace is read with the registry of the workspaces, in the same statement: the registry is on the path of every request, and a second round trip for the catalog would double the work of the smallest pool of the deployment. The catalog is the configuration of the workspace and not business data, and the reader of the registry reads it with the workspace that it names.
 
 A binding-level tenant mismatch is `404 NOT_FOUND`. Registry connection/query failure is `503 DATABASE_UNAVAILABLE`, not a fabricated missing workspace.
 
@@ -486,6 +490,22 @@ Schema and policy bundles are immutable per process generation and have content-
 
 Operator commands create/disable workspaces and apply migrations. They are local administrative entry points, not HTTP routes that bypass Hub.
 
+### 7.6 The catalog of a workspace
+
+The **catalog** of a workspace is what it serves: the collections it registered and the bundle of policies that applies to it. The deployment holds a default catalog, and a workspace may hold its own.
+
+The catalog is a **logical registry**. The physical tables of the collections are created by the reviewed migrations of the deployment, their isolation is written in those migrations, and the runtime role MUST NOT create or alter them. A registration names a collection of the deployment manifest and the physical table that the deployment declares for it. A registration that names an unknown collection or another table is refused, and a catalog that cannot be built MUST NOT serve a partial answer.
+
+The rules are:
+
+- A workspace that registered nothing serves every collection of the deployment manifest. This is the default of a deployment that has not used the registry yet.
+- A workspace that registered something serves exactly the registered and enabled collections, and nothing else. A collection that the workspace does not serve is not a collection of the service: it answers `404 NOT_FOUND`.
+- A relation to a collection that the workspace does not serve is absent from its manifest. A relation is never expanded towards a collection that is not served.
+- The registry is read with the registry of the workspaces, by the narrow reader of the registry, in one statement. The tables keep their row level security, and the role of the api reads them inside the scope of its transaction.
+- The registration of a collection and the publication of a bundle are operator commands. They are local administrative entry points, not HTTP routes that bypass Hub.
+
+The schema of a workspace is the schema of the deployment restricted to its collections. The version of the schema of a workspace is the version of the deployment, and the cursors bind it: a cursor of a workspace whose catalog changed is stale.
+
 ## 8. Data authorization
 
 ### 8.1 Policies and capabilities
@@ -574,6 +594,18 @@ Counts use exactly the same row predicates and client filter as the correspondin
 
 Audit access requires `data.audit.read`. This is a separately granted workspace-scoped capability, not a side effect of editing business records. Audit readers can see the workspace's audit identifiers and field-name metadata as an explicit privilege.
 
+### 8.6 The bundle of a workspace
+
+The bundle of policies of a workspace is the last bundle that was published for it, and the bundle of the deployment when it published none.
+
+- A bundle is validated against the deployment manifest before it is published: a bundle that names an unknown collection or an unknown field is refused, and nothing is written.
+- A bundle is published by an operator command. It is never written by a request of a tenant: a bundle says what a permission grants, and the grants of a principal are the business of Hub.
+- The history of the publications is kept. A version is never changed and never removed, and the version that applies is the last one that was published.
+- The bundle is parsed again when it is resolved. A bundle that was edited in the database, or that was published against another manifest, never applies: the service fails closed.
+- The policies of a collection that the workspace does not serve are not part of the effective bundle, and the effective bundle has its own content-derived version. The cursors bind it and the audit log records it.
+
+The catalog is not cached from the database: the bundle that was published is read with every request, and a bundle that was published is visible in the next one. The resolved catalog is memoized in the process, and the fingerprint of its inputs is the key: the collections that the workspace registered and the digest of the bundle it published. A bundle that was edited in the database has another digest, and it is parsed again and refused when it cannot be used.
+
 
 ## 9. HTTP API
 
@@ -641,14 +673,17 @@ Supported parameters:
 
 Unknown query parameters and duplicate occurrences of a parameter are rejected. The complete raw query string is at most 16 KiB.
 
-Filters support `_and`, `_or`, `_eq`, `_neq`, `_in`, `_nin`, `_lt`, `_lte`, `_gt`, `_gte`, and `_is_null`. Operator compatibility is type-checked. Null comparisons use `_is_null`; equality/ordering operands cannot be null.
+Filters support `_and`, `_or`, `_not`, `_eq`, `_neq`, `_in`, `_nin`, `_lt`, `_lte`, `_gt`, `_gte`, and `_is_null`. Operator compatibility is type-checked. Null comparisons use `_is_null`; equality/ordering operands cannot be null.
 
 - `_and`/`_or` contain non-empty arrays of filter objects.
+- `_not` contains one filter object and negates it.
 - Filter depth is at most 5, with at most 50 leaf predicates.
 - `_in`/`_nin` contain 1–100 values of the field's type.
 - An empty filter object means no additional client predicate.
 - Dotted relation filters, JSON-path expressions, arbitrary functions, and SQL-style wildcards are unsupported.
 - SQL values are bound parameters. Identifiers come only from the validated manifest.
+
+The negation follows the three valued logic of the database: the negation of an unknown is an unknown, and a row whose value is null is never matched by a negated comparison. The evaluation in memory and the statement of the database answer the same question about the same row, and the differential test proves it.
 
 Example filter:
 
@@ -951,7 +986,7 @@ The service is a modular monolith with an optional separate worker process. Dist
 | `src/observability/` | Structured logging and metric interfaces. |
 | `test/` | Contract, compatibility, database integration, load, and architecture verification. |
 
-Required domains are `gateway-context`, `workspaces`, `schema`, `authorization`, `records`, `audit`, and `events`.
+Required domains are `gateway-context`, `workspaces`, `schema`, `authorization`, `catalog`, `records`, `audit`, and `events`.
 
 Allowed cross-domain imports:
 
@@ -961,6 +996,7 @@ Allowed cross-domain imports:
 | `workspaces` | None |
 | `schema` | None |
 | `authorization` | `gateway-context`, `workspaces`, `schema` |
+| `catalog` | `schema`, `authorization` |
 | `audit` | None |
 | `events` | None |
 | `records` | `gateway-context`, `workspaces`, `schema`, `authorization`, `audit`, `events` |
@@ -990,6 +1026,7 @@ Configuration is loaded and validated as a whole before the service becomes read
 | `DATA_HUB_CONTEXT_TOKEN_FILE` | Required; dedicated access-context service credential. |
 | `DATA_CURSOR_KEY_FILE` | Required for API processes; at least 32 random bytes, separate from gateway/Hub keys. |
 | `DATA_CONTEXT_CACHE_TTL_MS` | `0`; read-only cache, range 0–5000. Mutations/worker commands always fetch fresh context. |
+| `DATA_CATALOG_CACHE_TTL_MS` | `0`; read-only cache of the catalog of the workspaces, range 0–60000. The default is no cache: a bundle that was published is visible in the next request. |
 | `DATA_HUB_TIMEOUT_MS` | `1000`; bounded access-context request. |
 | `DATA_REQUEST_TIMEOUT_MS` | `10000`; overall HTTP work deadline. |
 | `DATA_DB_STATEMENT_TIMEOUT_MS` | `3000`. |
@@ -1023,7 +1060,7 @@ Development may use PGlite and deterministic Shuttle/Hub fixtures. Production re
 
 Readiness may reuse a successful authenticated Hub discovery result for at most 10 seconds. Workers additionally require access to the delivery store and valid registered subscriber configuration. Probes are not routed through ordinary workspace authorization.
 
-Metrics include request counts/durations by normalized route and status, Hub duration/failures, context-cache hits, database pool waits, authorization denials, transaction rollbacks, outbox backlog/age, failed deliveries, retries, and drain state.
+Metrics include request counts/durations by normalized route and status, Hub duration/failures, context-cache hits, database pool waits, authorization denials, transaction rollbacks, outbox backlog/age, failed deliveries, retries, and drain state. The hits and the misses of the cache of the catalog are counted as well.
 
 Tenant, principal, workspace, record ID, raw URL, email, and query text MUST NOT become unbounded metric labels.
 

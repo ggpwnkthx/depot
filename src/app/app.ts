@@ -19,10 +19,9 @@ import {
   type VerifiedGatewayIdentity,
   verifyGatewayRequest,
 } from '../domains/gateway-context'
-import type { ManifestBundle } from '../domains/schema'
-import type { PolicyBundle } from '../domains/authorization'
+import type { CatalogProvider } from '../domains/catalog'
 import type { RecordsService } from '../domains/records'
-import type { WorkspaceIdentity, WorkspaceRegistry } from '../domains/workspaces'
+import type { WorkspaceIdentity } from '../domains/workspaces'
 import { envelopeFor } from './errors'
 import { openapiDocument } from './openapi'
 import { buildSchemaMetadata } from './schema-metadata'
@@ -47,10 +46,9 @@ export interface AppDependencies {
   }
   readonly records: RecordsService
   readonly resolver: ContextResolverLike
-  readonly registry: WorkspaceRegistry
   readonly bindings: readonly ResolvedBinding[]
-  readonly manifest: ManifestBundle
-  readonly bundle: PolicyBundle
+  /** The catalog of the workspace: its collections and its policies. */
+  readonly catalog: CatalogProvider
   readonly auditReader: AuditReader
   readonly metrics: Metrics
   readonly logger: Logger
@@ -72,7 +70,7 @@ export interface ContextResolverLike {
       fresh: boolean
       source: 'shuttle' | 'worker'
       requestId: string
-      policyBundleVersion: string
+      policyBundleVersion?: string
     }
   ) => Promise<ResolvedContext>
 }
@@ -244,8 +242,15 @@ export function createApp(dependencies: AppDependencies): Hono<AppEnv> {
     if (workspaceId !== identity.workspaceId) {
       throw new ServiceError('UNAUTHENTICATED')
     }
-    const workspace = await dependencies.registry.findById(identity.workspaceId)
-    if (workspace?.status !== 'active') {
+    // The workspace and its catalog are read together: the identity of
+    // the workspace is the identity of the registry, and the catalog is
+    // the configuration of the workspace.
+    const found = await dependencies.catalog.find(identity.workspaceId)
+    if (!found) {
+      throw new ServiceError('NOT_FOUND')
+    }
+    const workspace = found.workspace
+    if (workspace.status !== 'active') {
       throw new ServiceError('NOT_FOUND')
     }
     if (identity.expectedTenantId && identity.expectedTenantId !== workspace.tenantId) {
@@ -263,10 +268,15 @@ export function createApp(dependencies: AppDependencies): Hono<AppEnv> {
         fresh,
         source: 'shuttle',
         requestId: c.get('requestId') ?? 'unknown',
-        policyBundleVersion: dependencies.bundle.bundleVersion,
+        policyBundleVersion: found.catalog.policyBundleVersion,
       }
     )
-    c.set('context', resolved.context)
+    const context: RequestContext = {
+      ...resolved.context,
+      policyBundleVersion: found.catalog.policyBundleVersion,
+      catalog: { manifest: found.catalog.manifest, bundle: found.catalog.bundle },
+    }
+    c.set('context', context)
     c.set('gateway', identity)
     c.set('workspace', workspace)
     await next()
@@ -299,9 +309,9 @@ export function createApp(dependencies: AppDependencies): Hono<AppEnv> {
     const context = requireContext(c)
     const metadata = buildSchemaMetadata({
       context,
-      manifest: dependencies.manifest,
-      bundle: dependencies.bundle,
-      schemaVersion: dependencies.schemaVersion,
+      manifest: context.catalog.manifest,
+      bundle: context.catalog.bundle,
+      schemaVersion: context.catalog.manifest.schemaVersion,
     })
     return c.json({ data: metadata }, 200, { 'cache-control': 'no-store' })
   })
@@ -311,9 +321,9 @@ export function createApp(dependencies: AppDependencies): Hono<AppEnv> {
     const key = collectionOf(c) ?? ''
     const metadata = buildSchemaMetadata({
       context,
-      manifest: dependencies.manifest,
-      bundle: dependencies.bundle,
-      schemaVersion: dependencies.schemaVersion,
+      manifest: context.catalog.manifest,
+      bundle: context.catalog.bundle,
+      schemaVersion: context.catalog.manifest.schemaVersion,
     })
     const collection = metadata.collections.find((entry) => entry.key === key)
     if (!collection) {

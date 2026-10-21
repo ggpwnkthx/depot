@@ -41,6 +41,7 @@ The knobs are the environment:
 | The database | PostgreSQL 15.19, on the same machine, `fsync=off` and `synchronous_commit=off` |
 | The deployment | one api process, `DATA_DB_POOL_MAX=20`, the registry and the delivery pools of 5 |
 | The context cache | `DATA_CONTEXT_CACHE_TTL_MS=0`: every request asks the hub |
+| The catalog | the workspace registered nothing: the catalog of the deployment is read with the registry of the workspaces, in one statement |
 | The data | 1000 articles of one workspace, one policy per action, the read of a page of 50 |
 
 The database is on the same machine and it does not fsync: these are the
@@ -50,14 +51,23 @@ numbers of a development machine, and a deployment measures its own.
 
 | Scenario | The requests | The rate | p50 | p95 | p99 | The failures |
 | --- | --- | --- | --- | --- | --- | --- |
-| Read heavy, a page of 50 | 14375 | 1438/s | 10.8 ms | 14.7 ms | 18.8 ms | 0 |
-| Mixed, half of the creations | 18692 | 1869/s | 6.3 ms | 21.4 ms | 27.1 ms | 0 |
-| The concurrent updates of one record | 2898 | 290/s | 54.6 ms | 66.0 ms | 75.9 ms | 0 (265 successes, 2633 precondition failures) |
-| The hub is down | 70163 | 7016/s | 2.2 ms | 3.0 ms | 4.3 ms | 70163 answers 503 |
+| Read heavy, a page of 50 | 10368 | 1037/s | 15.2 ms | 19.8 ms | 22.9 ms | 0 |
+| Mixed, half of the creations | 12888 | 1289/s | 11.1 ms | 23.4 ms | 27.4 ms | 0 |
+| The concurrent updates of one record | 3067 | 307/s | 51.8 ms | 62.4 ms | 73.5 ms | 0 (344 successes, 2723 precondition failures) |
+| The hub is down | 45216 | 4522/s | 3.4 ms | 5.0 ms | 7.2 ms | 45216 answers 503 |
+
+The numbers of the same machine, measured on the revision that reads
+the catalog of the workspace, are lower than the ones of the previous
+report: the machine was busier, and the catalog of the workspace is
+read with the registry of the workspaces. The two runs of the same
+revision on the same machine, with and without the catalog, are within
+seven percent of each other: the catalog costs the round trip of the
+statement that reads it, and the statement that reads it is the
+statement that read the workspace before.
 
 What the numbers say:
 
-- **The read path holds.** A page of fifty records is read in ten
+- **The read path holds.** A page of fifty records is read in fifteen
   milliseconds at the fiftieth percentile, with the context of the hub
   asked for every time. The hub is the dependency of every request and
   it is not on the critical path of the read of the records: the

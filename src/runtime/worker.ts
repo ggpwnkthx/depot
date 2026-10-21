@@ -15,15 +15,14 @@ import { ServiceError } from '../protocol/errors'
 import type { Logger } from '../observability/logger'
 import type { Metrics } from '../observability/metrics'
 import type { RequestContext, ResolvedContext } from '../domains/authorization'
+import type { CatalogProvider } from '../domains/catalog'
 import { MAX_CAUSATION_DEPTH, type Delivery, type Subscriber } from '../domains/events'
 import type { RecordsService } from '../domains/records'
-import type { WorkspaceRegistry } from '../domains/workspaces'
 import type { PostgresDeliveryStore } from '../platform/postgres/adapters'
 
 /** The options of the worker. */
 export interface WorkerOptions {
   readonly store: PostgresDeliveryStore
-  readonly registry: WorkspaceRegistry
   readonly resolver: {
     resolve: (
       request: {
@@ -36,15 +35,16 @@ export interface WorkerOptions {
         fresh: boolean
         source: 'shuttle' | 'worker'
         requestId: string
-        policyBundleVersion: string
+        policyBundleVersion?: string
       }
     ) => Promise<ResolvedContext>
   }
+  /** The catalog of the workspace of the command. */
+  readonly catalog: CatalogProvider
   readonly records: RecordsService
   readonly subscribers: readonly Subscriber[]
   readonly principalId: string
   readonly routeId: string
-  readonly policyBundleVersion: string
   readonly concurrency: number
   readonly leaseMs: number
   readonly heartbeatMs: number
@@ -267,10 +267,14 @@ export class SubscriberWorker {
     eventId: string
     causationDepth: number
   }): Promise<RequestContext> {
-    const workspace = await this.#options.registry.findById(event.workspaceId)
-    if (workspace?.status !== 'active') {
+    // The workspace and its catalog are read together: the identity of
+    // the workspace is the identity of the registry, and the catalog is
+    // the configuration of the workspace.
+    const found = await this.#options.catalog.find(event.workspaceId)
+    if (found?.workspace.status !== 'active') {
       throw new ServiceError('FORBIDDEN')
     }
+    const workspace = found.workspace
     if (workspace.tenantId !== event.tenantId) {
       throw new ServiceError('FORBIDDEN')
     }
@@ -285,11 +289,15 @@ export class SubscriberWorker {
         fresh: true,
         source: 'worker',
         requestId: `worker-${event.eventId}`,
-        policyBundleVersion: this.#options.policyBundleVersion,
+        policyBundleVersion: found.catalog.policyBundleVersion,
       }
     )
+    // The command of a worker sees the same collections and the same
+    // policies as the request that started the chain.
     return {
       ...resolved.context,
+      policyBundleVersion: found.catalog.policyBundleVersion,
+      catalog: { manifest: found.catalog.manifest, bundle: found.catalog.bundle },
       causationId: event.eventId,
       causationDepth: event.causationDepth + 1,
       causationPrincipalId: event.actorId,
