@@ -9,7 +9,7 @@
 
 set -euo pipefail
 
-HUB_COMMIT="fd5a97a3138d516af2daaf75497ee70b7738593d"
+HUB_COMMIT="d488835654ac313aaaeac845d9d7f5c68eb40020"
 PATCH="$(cd "$(dirname "$0")" && pwd)/0001-access-context-contract.patch"
 
 if [ $# -lt 1 ]; then

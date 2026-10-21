@@ -36,7 +36,7 @@ import { ConnectionPool } from '../src/platform/postgres/database'
 /** The commit of the gateway. */
 const SHUTTLE_COMMIT = process.env.SHUTTLE_COMMIT ?? 'e39d73efc37e0ca75ae5df24136babf56430ebc7'
 /** The commit of the hub. */
-const HUB_COMMIT = process.env.HUB_COMMIT ?? 'fd5a97a3138d516af2daaf75497ee70b7738593d'
+const HUB_COMMIT = process.env.HUB_COMMIT ?? 'd488835654ac313aaaeac845d9d7f5c68eb40020'
 /** The repository of the gateway. */
 const SHUTTLE_REPOSITORY = process.env.SHUTTLE_REPOSITORY ?? 'https://github.com/ggpwnkthx/shuttle'
 /** The repository of the hub. */

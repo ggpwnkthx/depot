@@ -1,6 +1,6 @@
 # The extension of the hub
 
-The pinned hub (`fd5a97a3138d516af2daaf75497ee70b7738593d`) does not
+The pinned hub (`d488835654ac313aaaeac845d9d7f5c68eb40020`) does not
 answer the access context contract of the specification of the data
 backend (section 5 of `SPECS.md`). The extension is a **required
 integration and deployment dependency**: a hub that does not carry it
@@ -29,14 +29,16 @@ answered before.
 | `src/app/access-context.test.ts` | The tests of the protocol. |
 | `src/app/app.ts`, `src/app/dependencies.ts` | The routes and the dependencies. |
 | `src/runtime/env.ts`, `src/runtime/composition.ts` | `HUB_ACCESS_CONTEXT_TOKENS` and the repository. |
-| `SPEC.md` | The section `8bis`, the contract of the extension, and the environment. |
+| `docs/spec.md` | The section `8bis`, the contract of the extension, and the environment. |
+| `docs/api.md` | The bodies of the requests and of the answers of the two endpoints. |
+| `.env.example` | The variable of the credentials of the extension. |
 
 ## How to apply it
 
 ```bash
 git clone https://github.com/ggpwnkthx/hub.git
 cd hub
-git checkout fd5a97a3138d516af2daaf75497ee70b7738593d
+git checkout d488835654ac313aaaeac845d9d7f5c68eb40020
 git apply /path/to/depot/integration/hub/0001-access-context-contract.patch
 bun install
 bun test

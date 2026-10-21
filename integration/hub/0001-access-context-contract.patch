@@ -1,51 +1,169 @@
-From 9d17e22e3098ad37b137b60a32a11ec0682caa5c Mon Sep 17 00:00:00 2001
+From e8b80f9c646cf366444f6b97402d915ee9de4e3f Mon Sep 17 00:00:00 2001
 From: Data Backend <dev@example.test>
-Date: Wed, 21 Oct 2026 16:53:47 +0000
+Date: Wed, 21 Oct 2026 17:49:03 +0000
 Subject: [PATCH] feat(hub): the access context contract
 
+The data backend needs the complete set of the capabilities of a
+principal, not only the boolean of the decision. The extension adds the
+discovery and the evaluation of the access context, a dedicated read only
+credential scoped to a set of tenants, and the section of the
+specification that describes them. The decision contract of the gateway
+is unchanged.
 ---
- SPEC.md                                       | 133 +++++++++++
- src/app/access-context.test.ts                | 195 ++++++++++++++++
- src/app/access-context.ts                     | 209 ++++++++++++++++++
+ .env.example                                  |   6 +
+ docs/api.md                                   |  82 +++++++
+ docs/spec.md                                  | 136 ++++++++++++
+ src/app/access-context.test.ts                | 197 ++++++++++++++++
+ src/app/access-context.ts                     | 210 ++++++++++++++++++
  src/app/app.test.ts                           |   2 +
- src/app/app.ts                                |  18 ++
+ src/app/app.ts                                |  20 ++
  src/app/decisions.test.ts                     |   2 +
  src/app/dependencies.ts                       |   7 +-
  .../authorization/access-context.test.ts      |  87 ++++++++
- src/domains/authorization/access-context.ts   | 102 +++++++++
+ src/domains/authorization/access-context.ts   |  99 +++++++++
  src/domains/authorization/index.ts            |  13 ++
  src/platform/postgres/access-context.ts       | 108 +++++++++
  src/platform/postgres/index.ts                |   1 +
- src/runtime/composition.ts                    |  43 ++++
+ src/runtime/composition.ts                    |  42 ++++
  src/runtime/env.ts                            |  11 +
- 14 files changed, 930 insertions(+), 1 deletion(-)
+ 16 files changed, 1022 insertions(+), 1 deletion(-)
  create mode 100644 src/app/access-context.test.ts
  create mode 100644 src/app/access-context.ts
  create mode 100644 src/domains/authorization/access-context.test.ts
  create mode 100644 src/domains/authorization/access-context.ts
  create mode 100644 src/platform/postgres/access-context.ts
 
-diff --git a/SPEC.md b/SPEC.md
-index cd7a021..fe928b9 100644
---- a/SPEC.md
-+++ b/SPEC.md
-@@ -385,6 +385,7 @@ exception is the level of the log, which falls back to `info`.
- | `HUB_ALLOW_MEMORY_STATE`    | Replaces the shared store with the memory of the process. The gateway has the same escape hatch, for the same reason.                                                                                                                                                             |
- | `HUB_ADMIN_TOKEN`           | The bearer token of the eight administrative endpoints. Required in production.                                                                                                                                                                                                    |
- | `HUB_ACCESS_TOKEN`          | The bearer token the gateway presents on `POST /v1/decisions`. Required in production.                                                                                                                                                                                            |
-+| `HUB_ACCESS_CONTEXT_TOKENS` | The credentials of the access context contract (§8bis): a JSON object whose keys are bearer tokens and whose values are the tenants every token may ask about. A `null` value is a credential of the platform.                                    |
- | `HUB_STATE_SECRET`          | Signs and encrypts the state of a login (§5.3). 32 bytes at least. The same value on every replica.                                                                                                                                                                               |
- | `HUB_SECRET_ENCRYPTION_KEY` | Encrypts the client secrets at rest (§4.3). 32 bytes.                                                                                                                                                                                                                             |
- | `HUB_SIGNING_KEY`           | The private key of Hub, in PEM. The public part is published at `/oauth/jwks`.                                                                                                                                                                                                    |
-@@ -464,6 +465,7 @@ down.
- | `HUB_REDIS_URL`           | The authorization codes have to be shared by the replicas, unless `HUB_ALLOW_MEMORY_STATE=true` names a deployment of a single node. |
- | `HUB_ADMIN_TOKEN`         | It is the bearer token of the eight administrative endpoints.                     |
- | `HUB_ACCESS_TOKEN`        | It is the bearer token the gateway presents on `POST /v1/decisions`.             |
-+| `HUB_ACCESS_CONTEXT_TOKENS` | It holds the credentials of the access context contract (§8bis).              |
- | `HUB_STATE_SECRET`        | It signs and encrypts the state of a login. At least 32 bytes.                  |
- | `HUB_SECRET_ENCRYPTION_KEY` | It encrypts the client secrets at rest. At least 32 bytes.                    |
- | `HUB_SIGNING_KEY`         | It is the private key Hub signs its tokens with, in PEM.                         |
-@@ -972,6 +974,137 @@ secret of the platform.
+diff --git a/.env.example b/.env.example
+index 261feac..17c9f14 100644
+--- a/.env.example
++++ b/.env.example
+@@ -33,6 +33,12 @@ HUB_ADMIN_TOKEN=the-admin-token-of-the-development
+ # The bearer token the gateway presents on POST /v1/decisions.
+ HUB_ACCESS_TOKEN=the-access-token-of-the-development
+ 
++# The credentials of the access context contract (spec 8bis): a json
++# object whose keys are bearer tokens and whose values are the tenants
++# every token may ask about. A null value is a credential of the
++# platform: it may ask about every tenant.
++# HUB_ACCESS_CONTEXT_TOKENS={"the-token-of-the-backend-of-acme":["22222222-2222-4222-8222-222222222222"]}
++
+ # The bearer token that guards the metrics. Without it, the endpoint is
+ # not served.
+ # HUB_METRICS_TOKEN=the-metrics-token-of-the-development
+diff --git a/docs/api.md b/docs/api.md
+index dc8c0b8..9611913 100644
+--- a/docs/api.md
++++ b/docs/api.md
+@@ -162,6 +162,88 @@ a tenant (its own principals only).
+ 
+ ---
+ 
++## The access context contract
++
++> **Status: extension.** Added by the extension of the access context
++> contract, a required integration change of the data backend. The
++> decision contract above is unchanged.
++
++The contract a service that owns data uses to learn the **complete** set
++of the capabilities of a principal, for a workspace and a route. It is
++not the credential of the gateway and it is not a credential of the
++administration: it is a dedicated read only credential, scoped to an
++explicit set of tenants with `HUB_ACCESS_CONTEXT_TOKENS`.
++
++### `GET /v1/access-context`
++
++The discovery of the contract. It is the readiness check of a consumer.
++
++```
++GET /v1/access-context
++Authorization: Bearer {access context credential}
++```
++
++```json
++{"versions":[1],"maxPermissionKeys":4096,"maxLifetimeMs":5000}
++```
++
++The refusals: `401 unauthorized` (missing or wrong credential). The
++discovery discloses nothing about the principals and nothing about the
++grants.
++
++### `POST /v1/access-context`
++
++The context of a principal.
++
++```
++POST /v1/access-context
++Authorization: Bearer {access context credential}
++Content-Type: application/json
++
++{"version":1,"subject":"…","tenantId":"…","workspaceId":"…","routeId":"…"}
++```
++
++| Field | Rule |
++| --- | --- |
++| `version` | Required. `1`. Another version is `400 bad_request`. |
++| `subject` | Required. The id of the principal. |
++| `tenantId` | Required. The tenant of the request. |
++| `workspaceId` | Required. The workspace of the request. |
++| `routeId` | Required. The route of the request. |
++
++A field that is not known and a field of the wrong type are refused. The
++body is at most 64 KiB.
++
++```json
++{
++  "version": 1,
++  "allow": true,
++  "subject": "…",
++  "tenantId": "…",
++  "workspaceId": "…",
++  "routeId": "…",
++  "permissionKeys": ["content.editor", "content.reader"],
++  "evaluatedAt": "2026-10-21T16:00:00.000Z",
++  "validUntil": "2026-10-21T16:00:05.000Z"
++}
++```
++
++`permissionKeys` is the complete, sorted and deduplicated set of the
++keys of the grants that apply to the request. The answer is never
++partial: more than 4096 keys is `503 service_unavailable` and never an
++allowance with fewer keys.
++
++A denial is an answer of `200`: `allow` is false, `permissionKeys` is
++empty, `validUntil` is absent, and the answer does not disclose the
++cause.
++
++The refusals: `401 unauthorized` (missing or wrong credential), `403
++forbidden` (the credential may not ask about this tenant), `400
++bad_request` (the body is not understood), `503 service_unavailable`
++(the policy could not be evaluated completely).
++
++---
++
+ ## The administration
+ 
+ Eight endpoints, all under `/v1/admin`, all requiring
+diff --git a/docs/spec.md b/docs/spec.md
+index 3c8b2fa..493c7a2 100644
+--- a/docs/spec.md
++++ b/docs/spec.md
+@@ -361,6 +361,7 @@ readable list with the values of a development machine is in `.env.example`.
+ | `HUB_ALLOW_MEMORY_STATE` | Replaces the shared store with the memory of the process. A single-node deployment only. |
+ | `HUB_ADMIN_TOKEN` | The bearer token of the eight administrative endpoints. |
+ | `HUB_ACCESS_TOKEN` | The bearer token the gateway presents on `POST /v1/decisions`. |
++| `HUB_ACCESS_CONTEXT_TOKENS` | The credentials of the access context contract (§8bis): a JSON object whose keys are bearer tokens and whose values are the tenants every token may ask about. A `null` value is a credential of the platform. |
+ | `HUB_STATE_SECRET` | Signs and encrypts the state of a login (§5.3). 32 bytes at least. The same value on every replica. |
+ | `HUB_SECRET_ENCRYPTION_KEY` | Encrypts the client secrets at rest (§4.3). 32 bytes at least. |
+ | `HUB_SIGNING_KEY` | The private key of Hub, in PEM. The public part is published at `/oauth/jwks`. |
+@@ -434,6 +435,7 @@ down.
+ | `HUB_REDIS_URL` | The authorization codes have to be shared by the replicas, unless `HUB_ALLOW_MEMORY_STATE=true` names a deployment of a single node. |
+ | `HUB_ADMIN_TOKEN` | It is the bearer token of the eight administrative endpoints. |
+ | `HUB_ACCESS_TOKEN` | It is the bearer token the gateway presents on `POST /v1/decisions`. |
++| `HUB_ACCESS_CONTEXT_TOKENS` | It holds the credentials of the access context contract (§8bis). A deployment that serves a data backend needs it. |
+ | `HUB_STATE_SECRET` | It signs and encrypts the state of a login. At least 32 bytes. |
+ | `HUB_SECRET_ENCRYPTION_KEY` | It encrypts the client secrets at rest. At least 32 bytes. |
+ | `HUB_SIGNING_KEY` | It is the private key Hub signs its tokens with, in PEM. |
+@@ -919,6 +921,140 @@ secret of the platform.
  
  ---
  
@@ -66,6 +184,9 @@ index cd7a021..fe928b9 100644
 +The two contracts read the same tables and they evaluate the same policy.
 +The access context never replaces the decision: the gateway continues to
 +use §8.
++
++The bodies of the requests and of the answers are in
++[api.md](api.md#the-access-context-contract).
 +
 +### 8bis.1 The discovery
 +
@@ -182,13 +303,13 @@ index cd7a021..fe928b9 100644
 +
  ## 9. The administration
  
- Five endpoints. That is the whole administration surface of Hub: there is
+ Eight endpoints. That is the whole administration surface of Hub: there is
 diff --git a/src/app/access-context.test.ts b/src/app/access-context.test.ts
 new file mode 100644
-index 0000000..53d114f
+index 0000000..5d5d3f6
 --- /dev/null
 +++ b/src/app/access-context.test.ts
-@@ -0,0 +1,195 @@
+@@ -0,0 +1,197 @@
 +import { describe, expect, test } from 'bun:test'
 +import { Hono } from 'hono'
 +import {
@@ -229,8 +350,9 @@ index 0000000..53d114f
 +  instance.get('/v1/access-context', (context) =>
 +    accessContextDiscoveryHandler(context as never, dependencies)
 +  )
-+  instance.post('/v1/access-context', async (context) =>
-+    await accessContextHandler(context as never, dependencies)
++  instance.post(
++    '/v1/access-context',
++    async (context) => await accessContextHandler(context as never, dependencies)
 +  )
 +  return instance
 +}
@@ -295,16 +417,17 @@ index 0000000..53d114f
 +  })
 +
 +  test('a refusal is an answer of 200 without a validity', async () => {
-+    const response = await app(
-+      factsOf({ permissionKeys: [], principalExists: false })
-+    ).request('/v1/access-context', {
-+      method: 'POST',
-+      headers: {
-+        authorization: `Bearer ${CREDENTIAL}`,
-+        'content-type': 'application/json',
-+      },
-+      body: JSON.stringify(body()),
-+    })
++    const response = await app(factsOf({ permissionKeys: [], principalExists: false })).request(
++      '/v1/access-context',
++      {
++        method: 'POST',
++        headers: {
++          authorization: `Bearer ${CREDENTIAL}`,
++          'content-type': 'application/json',
++        },
++        body: JSON.stringify(body()),
++      }
++    )
 +    expect(response.status).toBe(200)
 +    const answer = (await response.json()) as Record<string, unknown>
 +    expect(answer.allow).toBe(false)
@@ -386,10 +509,10 @@ index 0000000..53d114f
 +})
 diff --git a/src/app/access-context.ts b/src/app/access-context.ts
 new file mode 100644
-index 0000000..c9af8f0
+index 0000000..db5f1ee
 --- /dev/null
 +++ b/src/app/access-context.ts
-@@ -0,0 +1,209 @@
+@@ -0,0 +1,210 @@
 +/**
 + * The contract of the access context (spec §9).
 + *
@@ -407,6 +530,7 @@ index 0000000..c9af8f0
 +import { timingSafeEqual } from 'node:crypto'
 +import {
 +  type AccessContextAnswer,
++  type AccessContextFacts,
 +  type AccessContextRequest,
 +  type AccessContextStore,
 +  ACCESS_CONTEXT_VERSION,
@@ -565,10 +689,10 @@ index 0000000..c9af8f0
 +    return jsonError(403, 'forbidden', 'the credential may not ask about this tenant')
 +  }
 +
-+  let facts
++  let facts: AccessContextFacts
 +  try {
 +    facts = await dependencies.store.context(request)
-+  } catch (error) {
++  } catch {
 +    return jsonError(503, 'service_unavailable', 'the context could not be computed')
 +  }
 +
@@ -613,7 +737,7 @@ index 3372867..7175073 100644
      codes: {} as HubDependencies['codes'],
      tenants: {} as HubDependencies['tenants'],
 diff --git a/src/app/app.ts b/src/app/app.ts
-index 5b603a9..41e43b8 100644
+index 5b603a9..0cc44ba 100644
 --- a/src/app/app.ts
 +++ b/src/app/app.ts
 @@ -20,6 +20,7 @@ import {
@@ -624,7 +748,7 @@ index 5b603a9..41e43b8 100644
  import { authorizeHandler, callbackHandler } from './login'
  import { tokenHandler } from './oauth'
  import { healthHandler, readyHandler } from './endpoints'
-@@ -125,6 +126,23 @@ export function createHubApp(dependencies: HubDependencies): Hono<HubEnv> {
+@@ -125,6 +126,25 @@ export function createHubApp(dependencies: HubDependencies): Hono<HubEnv> {
    // The decision contract of the gateway.
    app.post('/v1/decisions', async (context) => await decisionHandler(context, dependencies))
  
@@ -637,12 +761,14 @@ index 5b603a9..41e43b8 100644
 +      observer: dependencies.observer,
 +    })
 +  )
-+  app.post('/v1/access-context', async (context) =>
-+    await accessContextHandler(context, {
-+      store: dependencies.accessContexts,
-+      credentials: dependencies.accessContextCredentials,
-+      observer: dependencies.observer,
-+    })
++  app.post(
++    '/v1/access-context',
++    async (context) =>
++      await accessContextHandler(context, {
++        store: dependencies.accessContexts,
++        credentials: dependencies.accessContextCredentials,
++        observer: dependencies.observer,
++      })
 +  )
 +
    // The metrics of the service.
@@ -781,10 +907,10 @@ index 0000000..b244ced
 +})
 diff --git a/src/domains/authorization/access-context.ts b/src/domains/authorization/access-context.ts
 new file mode 100644
-index 0000000..ad62d18
+index 0000000..447efa4
 --- /dev/null
 +++ b/src/domains/authorization/access-context.ts
-@@ -0,0 +1,102 @@
+@@ -0,0 +1,99 @@
 +/**
 + * The access context of a principal (spec §9).
 + *
@@ -860,10 +986,7 @@ index 0000000..ad62d18
 + * are: a consumer decides what the keys mean, Hub decides which ones are
 + * held.
 + */
-+export function evaluateAccessContext(
-+  facts: AccessContextFacts,
-+  now: Date
-+): AccessContextAnswer {
++export function evaluateAccessContext(facts: AccessContextFacts, now: Date): AccessContextAnswer {
 +  const keys = [...new Set(facts.permissionKeys)].sort()
 +  if (!facts.principalExists || !facts.principalActive || !facts.tenantEnabled) {
 +    return { allow: false, permissionKeys: [], evaluatedAt: now, validUntil: null }
@@ -1035,7 +1158,7 @@ index d19dfaa..9c8f0c7 100644
  export type { GrantRow, NewGrant } from './grants'
  export { GrantRepository } from './grants'
 diff --git a/src/runtime/composition.ts b/src/runtime/composition.ts
-index 01aa0d0..2e6e67b 100644
+index 01aa0d0..6b91203 100644
 --- a/src/runtime/composition.ts
 +++ b/src/runtime/composition.ts
 @@ -8,6 +8,7 @@
@@ -1065,11 +1188,10 @@ index 01aa0d0..2e6e67b 100644
      metricsToken: settings.metrics.token,
      // The administration of the platform: the eight endpoints of the
      // specification, and nothing else.
-@@ -474,3 +480,40 @@ export async function createRuntime(settings: RuntimeSettings): Promise<HubRunti
+@@ -474,3 +480,39 @@ export async function createRuntime(settings: RuntimeSettings): Promise<HubRunti
      close: closeResources,
    }
  }
-+
 +
 +/**
 + * Reads the credentials of the access context contract.

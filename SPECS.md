@@ -38,13 +38,13 @@ The integration baseline is pinned to:
 | Project | Commit | Normative reference |
 | --- | --- | --- |
 | Shuttle | `e39d73efc37e0ca75ae5df24136babf56430ebc7` | [Gateway specification](https://github.com/ggpwnkthx/shuttle/blob/e39d73efc37e0ca75ae5df24136babf56430ebc7/docs/spec.md) |
-| Hub | `fd5a97a3138d516af2daaf75497ee70b7738593d` | [Identity and grants specification](https://github.com/ggpwnkthx/hub/blob/fd5a97a3138d516af2daaf75497ee70b7738593d/SPEC.md) |
+| Hub | `d488835654ac313aaaeac845d9d7f5c68eb40020` | [Identity and grants specification](https://github.com/ggpwnkthx/hub/blob/d488835654ac313aaaeac845d9d7f5c68eb40020/docs/spec.md) |
 
 Additional implementation evidence:
 
 - [Shuttle architecture](https://github.com/ggpwnkthx/shuttle/blob/e39d73efc37e0ca75ae5df24136babf56430ebc7/docs/architecture.md).
-- [Hub decision query](https://github.com/ggpwnkthx/hub/blob/fd5a97a3138d516af2daaf75497ee70b7738593d/src/platform/postgres/decisions.ts).
-- [Hub transaction-scoped tenant isolation](https://github.com/ggpwnkthx/hub/blob/fd5a97a3138d516af2daaf75497ee70b7738593d/src/platform/postgres/scope.ts).
+- [Hub decision query](https://github.com/ggpwnkthx/hub/blob/d488835654ac313aaaeac845d9d7f5c68eb40020/src/platform/postgres/decisions.ts).
+- [Hub transaction-scoped tenant isolation](https://github.com/ggpwnkthx/hub/blob/d488835654ac313aaaeac845d9d7f5c68eb40020/src/platform/postgres/scope.ts).
 
 A compatibility change requires updating the pinned references and passing the integration suite. Hub's proposed integration changes are implemented in its own repository and must preserve the existing gateway contract.
 
