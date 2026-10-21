@@ -12,7 +12,7 @@
  * and as a predicate over a row that is already in memory.
  */
 
-import type { FieldDefinition } from '../schema'
+import type { FieldDefinition, FieldType } from '../schema'
 
 /** The operators of a predicate. */
 export const FILTER_OPERATORS = [
@@ -65,6 +65,16 @@ export type FilterNode =
       readonly kind: 'cmp'
       readonly field: string
       readonly operator: FilterOperator
+      /**
+       * The type of the field, when the parser knows it.
+       *
+       * The type is the rule of the comparison: the statement compares
+       * with the type of the column, and the evaluation in memory has to
+       * compare with the same type. A comparison that does not know the
+       * type compares a text that looks like a number as a number, and
+       * the two evaluations do not agree.
+       */
+      readonly type?: FieldType
       readonly value?: unknown
       readonly values?: readonly unknown[]
     }
@@ -363,6 +373,7 @@ function parseNode(
       kind: 'cmp',
       field: key,
       operator: typed,
+      type: definition.type,
       values: operand.map((entry) => normalizeOperand(definition, entry, options)),
     }
   }
@@ -372,6 +383,7 @@ function parseNode(
     kind: 'cmp',
     field: key,
     operator: typed,
+    type: definition.type,
     value: normalizeOperand(definition, operand, options),
   }
 }
@@ -465,7 +477,11 @@ export function compileFilter(node: FilterNode, options: CompileFilterOptions): 
   const resolved = options.substitutions ? resolveSubstitutions(node, options.substitutions) : node
 
   const placeholder = (value: unknown, type: string): string => {
-    params.push(value)
+    // A json value is bound as its text. The driver of the database
+    // writes a list as the literal of a list of the database, and the
+    // literal of a list is not a json value: a predicate of a json
+    // field that holds a list would be refused by the server.
+    params.push(type === 'jsonb' ? JSON.stringify(value) : value)
     const current = `$${index}`
     index += 1
     return type === 'text' ? current : `${current}::${type}`
@@ -635,21 +651,21 @@ function evaluateTruth(
     if (isNull(value)) return null
     switch (current.operator) {
       case '_eq':
-        return valuesEqual(value, operand)
+        return compareTyped(current.type, value, operand) === 0
       case '_neq':
-        return !valuesEqual(value, operand)
+        return compareTyped(current.type, value, operand) !== 0
       case '_lt':
-        return compareValues(value, operand) < 0
+        return compareTyped(current.type, value, operand) < 0
       case '_lte':
-        return compareValues(value, operand) <= 0
+        return compareTyped(current.type, value, operand) <= 0
       case '_gt':
-        return compareValues(value, operand) > 0
+        return compareTyped(current.type, value, operand) > 0
       case '_gte':
-        return compareValues(value, operand) >= 0
+        return compareTyped(current.type, value, operand) >= 0
       case '_in':
-        return (current.values ?? []).some((entry) => valuesEqual(value, entry))
+        return (current.values ?? []).some((entry) => compareTyped(current.type, value, entry) === 0)
       case '_nin':
-        return !(current.values ?? []).some((entry) => valuesEqual(value, entry))
+        return !(current.values ?? []).some((entry) => compareTyped(current.type, value, entry) === 0)
       default:
         return false
     }
@@ -657,39 +673,133 @@ function evaluateTruth(
   return walk(resolved)
 }
 
-/** Reports whether two values are equal, with the rules of their type. */
-export function valuesEqual(left: unknown, right: unknown): boolean {
-  if (left === null || left === undefined) return right === null || right === undefined
-  if (typeof left === 'boolean' || typeof right === 'boolean') return left === right
-  if (typeof left === 'number' || typeof right === 'number') return Number(left) === Number(right)
-  if (left instanceof Date || right instanceof Date) {
-    return new Date(left as Date).getTime() === new Date(right as Date).getTime()
+/**
+ * Compares two values with the rules of the type of the field.
+ *
+ * The statement of the database compares with the type of the column:
+ * the text with the collation "C", the numbers as numbers, the decimals
+ * exactly, the timestamps as instants and the json as a value. The
+ * evaluation in memory uses the same rules, and it needs the type of
+ * the field to do it.
+ *
+ * Without the type, one comparison would serve every field, and the
+ * comparisons of the two evaluations would disagree: the text "10" is
+ * greater than the text "9" for the database and it is smaller for a
+ * comparison that reads the two as numbers.
+ */
+function compareTyped(type: FieldType | undefined, left: unknown, right: unknown): number {
+  switch (type) {
+    case 'integer':
+      return compareInteger(left, right)
+    case 'decimal':
+      return compareDecimals(decimalText(left), decimalText(right))
+    case 'timestamp':
+      return compareInstants(left, right)
+    case 'boolean':
+      if (left === right) return 0
+      return left === false ? -1 : 1
+    case 'json':
+      return canonicalJson(left) === canonicalJson(right) ? 0 : 1
+    case 'uuid':
+      return compareText(String(left).toLowerCase(), String(right).toLowerCase())
+    case 'string':
+    case 'text':
+    case 'enum':
+    default:
+      return compareText(String(left), String(right))
   }
-  if (typeof left === 'object' || typeof right === 'object') {
-    return canonicalJson(left) === canonicalJson(right)
-  }
-  return String(left) === String(right)
 }
 
 /**
- * Compares two values.
+ * Compares two texts the way the database compares them.
  *
- * The comparison of a decimal is exact: the values are compared as
- * decimals and not as numbers, so a value that does not fit in a double
- * keeps its order.
+ * The statement compares the text with the collation "C", which is the
+ * comparison of the bytes of the UTF-8. The comparison of the characters
+ * of the language is the comparison of the units of the UTF-16, and the
+ * two orders differ for the characters that are outside the plane of the
+ * basic multilingual one: the code point U+1F600 is after the code
+ * point U+FFFD for the bytes and before it for the units.
  */
-export function compareValues(left: unknown, right: unknown): number {
-  if (left === null || left === undefined) return right === null || right === undefined ? 0 : -1
-  if (left instanceof Date) return left.getTime() - new Date(right as string).getTime()
-  if (typeof left === 'number' && typeof right === 'number') return left - right
-  const leftText = String(left)
-  const rightText = String(right)
-  if (/^-?\d+(\.\d+)?$/.test(leftText) && /^-?\d+(\.\d+)?$/.test(rightText)) {
-    return compareDecimals(leftText, rightText)
+function compareText(left: string, right: string): number {
+  return Buffer.compare(Buffer.from(left, 'utf8'), Buffer.from(right, 'utf8'))
+}
+
+/** Compares two integers, exactly. */
+function compareInteger(left: unknown, right: unknown): number {
+  const a = toBigInt(left)
+  const b = toBigInt(right)
+  return a < b ? -1 : a > b ? 1 : 0
+}
+
+/** The integer of a value, exactly. */
+function toBigInt(value: unknown): bigint {
+  if (typeof value === 'bigint') return value
+  if (typeof value === 'number') return BigInt(Math.trunc(value))
+  const text = String(value).trim()
+  if (/^-?\d+$/.test(text)) return BigInt(text)
+  return BigInt(Math.trunc(Number(text)))
+}
+
+/** The text of a decimal. */
+function decimalText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : String(value)
+}
+
+/** Compares two timestamps, as instants. */
+function compareInstants(left: unknown, right: unknown): number {
+  const a = instantOf(left)
+  const b = instantOf(right)
+  if (a === null || b === null) return compareText(String(left), String(right))
+  return a < b ? -1 : a > b ? 1 : 0
+}
+
+/** The instant of a value, in microseconds since the epoch. */
+function instantOf(value: unknown): bigint | null {
+  if (value instanceof Date) {
+    const time = value.getTime()
+    if (Number.isNaN(time)) return null
+    return BigInt(time) * 1000n
   }
-  if (leftText < rightText) return -1
-  if (leftText > rightText) return 1
-  return 0
+  if (typeof value === 'number') return BigInt(Math.trunc(value)) * 1000n
+  if (typeof value !== 'string') return null
+  return parseInstant(value)
+}
+
+/**
+ * Parses a timestamp with an explicit offset into microseconds.
+ *
+ * The fraction of a second of the database is a microsecond, and the
+ * parser of the language keeps at most a millisecond. A predicate that
+ * compares the fraction of a second would then be compared at the
+ * millisecond in the memory and at the microsecond in the statement,
+ * and the two answers would not agree.
+ */
+function parseInstant(value: string): bigint | null {
+  const match =
+    /^(\d{4})-(\d{2})-(\d{2})[Tt ](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(Z|z|[+-]\d{2}:\d{2})$/.exec(
+      value.trim()
+    )
+  if (!match) return null
+  const [, year, month, day, hour, minute, second, fraction, offset] = match
+  const zone = offset ?? 'Z'
+  const date = new Date(0)
+  date.setUTCFullYear(Number(year), Number(month) - 1, Number(day))
+  date.setUTCHours(Number(hour), Number(minute), Number(second), 0)
+  const base = date.getTime()
+  if (Number.isNaN(base)) return null
+  let micros = 0n
+  if (fraction) {
+    micros = BigInt(fraction.slice(0, 6).padEnd(6, '0'))
+    // The database rounds the fraction to the microsecond.
+    if (fraction.length > 6 && fraction[6]! >= '5') micros += 1n
+  }
+  let offsetMinutes = 0
+  if (zone !== 'Z' && zone !== 'z') {
+    const sign = zone[0] === '-' ? -1 : 1
+    offsetMinutes = sign * (Number(zone.slice(1, 3)) * 60 + Number(zone.slice(4, 6)))
+  }
+  // The instant is in microseconds: a minute is sixty million of them.
+  return BigInt(base) * 1000n + micros - BigInt(offsetMinutes) * 60n * 1_000_000n
 }
 
 /** Compares two decimal strings exactly. */
