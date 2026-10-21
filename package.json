@@ -29,7 +29,8 @@
     "capacity": "bun run scripts/capacity.ts",
     "retention": "bun run scripts/retention.ts",
     "provision": "bun run scripts/provision.ts",
-    "fixtures": "bun run scripts/generate-fixtures.ts"
+    "fixtures": "bun run scripts/generate-fixtures.ts",
+    "build:client": "bun run --cwd packages/client build"
   },
   "dependencies": {
     "hono": "4.13.13",
