@@ -234,6 +234,26 @@ export function isTimestamp(value: string): boolean {
 }
 
 /**
+ * Normalizes the operand of a predicate.
+ *
+ * The uuid of the database is written in lower case, and the cast of the
+ * statement normalizes the operand: the evaluation in memory has to
+ * normalize it too, or the two evaluations would disagree on the case
+ * of a uuid.
+ */
+function normalizeOperand(
+  definition: FieldDefinition,
+  value: unknown,
+  options: { substitutions?: boolean }
+): unknown {
+  if (definition.type !== 'uuid' || typeof value !== 'string') return value
+  if (options.substitutions && (SUBSTITUTIONS as readonly string[]).includes(value)) {
+    return value
+  }
+  return value.toLowerCase()
+}
+
+/**
  * Parses a filter.
  *
  * The parser is strict: an unknown operator, an unknown field, a wrong
@@ -322,11 +342,21 @@ function parseNode(
     for (const entry of operand) {
       validateOperand(key, definition, typed, entry, options)
     }
-    return { kind: 'cmp', field: key, operator: typed, values: operand }
+    return {
+      kind: 'cmp',
+      field: key,
+      operator: typed,
+      values: operand.map((entry) => normalizeOperand(definition, entry, options)),
+    }
   }
 
   validateOperand(key, definition, typed, operand, options)
-  return { kind: 'cmp', field: key, operator: typed, value: operand }
+  return {
+    kind: 'cmp',
+    field: key,
+    operator: typed,
+    value: normalizeOperand(definition, operand, options),
+  }
 }
 
 /**
@@ -478,6 +508,23 @@ export function compileFilter(node: FilterNode, options: CompileFilterOptions): 
 }
 
 /**
+ * The canonical json of a value.
+ *
+ * The keys of an object are sorted: the json of the database does not
+ * keep the order of the keys, and the comparison of two json values has
+ * to be the comparison of their content.
+ */
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null'
+  if (Array.isArray(value)) return `[${value.map((entry) => canonicalJson(entry)).join(',')}]`
+  const record = value as Record<string, unknown>
+  const parts = Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
+  return `{${parts.join(',')}}`
+}
+
+/**
  * Reports whether a value of a row is the null of the database.
  *
  * A field that the row does not carry is the null of the column: the
@@ -554,7 +601,7 @@ export function valuesEqual(left: unknown, right: unknown): boolean {
     return new Date(left as Date).getTime() === new Date(right as Date).getTime()
   }
   if (typeof left === 'object' || typeof right === 'object') {
-    return JSON.stringify(left) === JSON.stringify(right)
+    return canonicalJson(left) === canonicalJson(right)
   }
   return String(left) === String(right)
 }

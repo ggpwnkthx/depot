@@ -185,6 +185,12 @@ of the locale would otherwise answer differently from the evaluation in
 memory — `'Zebra' < 'apple'` is true for the bytes and false for the
 collation of the unicode.
 
+The two normalizations of the database are part of the parser, and not
+of the two evaluations: the uuid is written in lower case, and the json
+does not keep the order of its keys. The parser normalizes the operand
+of a uuid and the comparison of a json compares the content and not the
+order, so the two evaluations compare the same values.
+
 The two evaluations are compared by a differential test: the same
 predicates run against the same rows, in memory and in the server, and
 the two answers have to be the same. The fixture of the test carries a
