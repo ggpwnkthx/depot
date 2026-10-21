@@ -6,11 +6,11 @@
 # migrations. The secrets are not in the backup: they belong to the
 # secret manager of the deployment.
 #
-#   DATA_ADMIN_DATABASE_URL=... DATA_BACKUP_DIR=... ./scripts/backup.sh
+#   DATA_BACKUP_DATABASE_URL=... DATA_BACKUP_DIR=... ./scripts/backup.sh
 
 set -euo pipefail
 
-: "${DATA_ADMIN_DATABASE_URL:?the url of the administrator of the server is required}"
+: "${DATA_BACKUP_DATABASE_URL:?the url of the database of the deployment is required}"
 : "${DATA_BACKUP_DIR:?the directory of the backup is required}"
 
 mkdir -p "${DATA_BACKUP_DIR}"
@@ -18,7 +18,7 @@ STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 FILE="${DATA_BACKUP_DIR}/depot-${STAMP}.dump"
 
 echo "the backup is written to ${FILE}"
-pg_dump --format=custom --no-owner --file "${FILE}" "${DATA_ADMIN_DATABASE_URL}"
+pg_dump --format=custom --no-owner --file "${FILE}" "${DATA_BACKUP_DATABASE_URL}"
 
 # The artifacts of the deployment travel with the backup: the manifests
 # and the policies are the meaning of the data.

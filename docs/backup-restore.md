@@ -17,7 +17,7 @@ deployment, and they are rotated and restored by it.
 ## The command
 
 ```bash
-DATA_ADMIN_DATABASE_URL=... DATA_BACKUP_DIR=/var/backups/depot \
+DATA_BACKUP_DATABASE_URL=... DATA_BACKUP_DIR=/var/backups/depot \
   ./scripts/backup.sh
 ```
 
@@ -28,7 +28,8 @@ a state of the database and not a mixture of two states.
 ## The rehearsal
 
 ```bash
-DATA_ADMIN_DATABASE_URL=... DATA_BACKUP_FILE=/var/backups/depot/depot-....dump \
+DATA_ADMIN_DATABASE_URL=... DATA_RUNTIME_DATABASE_URL=... \
+  DATA_BACKUP_FILE=/var/backups/depot/depot-....dump \
   DATA_RESTORE_DATABASE=depot_restore ./scripts/restore.sh
 ```
 
@@ -36,13 +37,41 @@ The rehearsal restores into a database of its own and it checks:
 
 1. the restore completes without an error,
 2. the isolation of the tenants holds after the restore: the rows of a
-   scope that does not exist are not visible,
+   scope that does not exist are not visible. The check runs with the
+   role of the api, because an administrator bypasses the policies of
+   the tables,
 3. the deliveries that were pending are still there, and they are still
    safe: the worker claims them again, it asks the hub for a fresh
    context and it does not repeat an effect that is already durable.
 
 The rehearsal is a part of the release of a deployment. The record of
 the last rehearsal is in the release notes of the deployment.
+
+### The rehearsal of the release of version 0.1
+
+The rehearsal was run on the development machine of the release, on the
+PostgreSQL 15.19 of the machine, with the migrations of the repository
+and with one article in one workspace:
+
+```
+the backup is written to /tmp/rehearsal-backup/depot-20261021T172011Z.dump
+the backup is done
+the database of the rehearsal is created
+the backup is restored
+the isolation of the tenants is checked
+the restored rows are 0
+the rows of a scope that does not exist are 0
+the deliveries of the restored state are counted
+0
+the rehearsal is done
+```
+
+The restored rows are zero because the check runs with the role of the
+api and the scope of the transaction is not set: the policies of the
+tables refuse the rows. The scope that does not exist sees nothing, and
+the deliveries are read with the role of the deliveries.
+
+The rehearsal of a deployment runs the same command on its own data.
 
 ## The order of a restore
 
