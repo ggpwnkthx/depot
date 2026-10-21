@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "policies": [
+    {
+      "id": "read-articles",
+      "permission": "content.reader",
+      "collection": "articles",
+      "action": "read",
+      "where": {},
+      "fields": [
+        "title",
+        "body",
+        "status",
+        "category_id",
+        "parent_id",
+        "created_at",
+        "updated_at",
+        "category",
+        "parent",
+        "children"
+      ]
+    },
+    {
+      "id": "read-articles-own",
+      "permission": "content.author",
+      "collection": "articles",
+      "action": "read",
+      "where": { "created_by": { "_eq": "$principalId" } },
+      "fields": ["title", "body", "status", "created_at", "updated_at"]
+    },
+    {
+      "id": "create-articles",
+      "permission": "content.editor",
+      "collection": "articles",
+      "action": "create",
+      "where": {},
+      "check": {},
+      "fields": ["title", "body", "status", "category_id", "parent_id"]
+    },
+    {
+      "id": "update-articles-own",
+      "permission": "content.editor",
+      "collection": "articles",
+      "action": "update",
+      "where": { "created_by": { "_eq": "$principalId" } },
+      "check": { "created_by": { "_eq": "$principalId" } },
+      "fields": ["title", "body", "status", "category_id", "parent_id"]
+    },
+    {
+      "id": "delete-articles-own",
+      "permission": "content.editor",
+      "collection": "articles",
+      "action": "delete",
+      "where": { "created_by": { "_eq": "$principalId" } },
+      "fields": []
+    },
+    {
+      "id": "read-categories",
+      "permission": "content.reader",
+      "collection": "categories",
+      "action": "read",
+      "where": {},
+      "fields": ["name"]
+    },
+    {
+      "id": "create-categories",
+      "permission": "content.editor",
+      "collection": "categories",
+      "action": "create",
+      "where": {},
+      "check": {},
+      "fields": ["name"]
+    },
+    {
+      "id": "update-categories",
+      "permission": "content.editor",
+      "collection": "categories",
+      "action": "update",
+      "where": {},
+      "check": {},
+      "fields": ["name"]
+    },
+    {
+      "id": "delete-categories",
+      "permission": "content.editor",
+      "collection": "categories",
+      "action": "delete",
+      "where": {},
+      "fields": []
+    },
+    {
+      "id": "read-article-stats",
+      "permission": "data.projection.write",
+      "collection": "article_stats",
+      "action": "read",
+      "where": {},
+      "fields": ["article_id", "word_count", "event_id"]
+    },
+    {
+      "id": "create-article-stats",
+      "permission": "data.projection.write",
+      "collection": "article_stats",
+      "action": "create",
+      "where": {},
+      "check": {},
+      "fields": ["article_id", "word_count", "event_id"]
+    }
+  ]
+}

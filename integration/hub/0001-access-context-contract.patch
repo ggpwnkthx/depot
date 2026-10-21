@@ -1,0 +1,1147 @@
+From 9d17e22e3098ad37b137b60a32a11ec0682caa5c Mon Sep 17 00:00:00 2001
+From: Data Backend <dev@example.test>
+Date: Wed, 21 Oct 2026 16:53:47 +0000
+Subject: [PATCH] feat(hub): the access context contract
+
+---
+ SPEC.md                                       | 133 +++++++++++
+ src/app/access-context.test.ts                | 195 ++++++++++++++++
+ src/app/access-context.ts                     | 209 ++++++++++++++++++
+ src/app/app.test.ts                           |   2 +
+ src/app/app.ts                                |  18 ++
+ src/app/decisions.test.ts                     |   2 +
+ src/app/dependencies.ts                       |   7 +-
+ .../authorization/access-context.test.ts      |  87 ++++++++
+ src/domains/authorization/access-context.ts   | 102 +++++++++
+ src/domains/authorization/index.ts            |  13 ++
+ src/platform/postgres/access-context.ts       | 108 +++++++++
+ src/platform/postgres/index.ts                |   1 +
+ src/runtime/composition.ts                    |  43 ++++
+ src/runtime/env.ts                            |  11 +
+ 14 files changed, 930 insertions(+), 1 deletion(-)
+ create mode 100644 src/app/access-context.test.ts
+ create mode 100644 src/app/access-context.ts
+ create mode 100644 src/domains/authorization/access-context.test.ts
+ create mode 100644 src/domains/authorization/access-context.ts
+ create mode 100644 src/platform/postgres/access-context.ts
+
+diff --git a/SPEC.md b/SPEC.md
+index cd7a021..fe928b9 100644
+--- a/SPEC.md
++++ b/SPEC.md
+@@ -385,6 +385,7 @@ exception is the level of the log, which falls back to `info`.
+ | `HUB_ALLOW_MEMORY_STATE`    | Replaces the shared store with the memory of the process. The gateway has the same escape hatch, for the same reason.                                                                                                                                                             |
+ | `HUB_ADMIN_TOKEN`           | The bearer token of the eight administrative endpoints. Required in production.                                                                                                                                                                                                    |
+ | `HUB_ACCESS_TOKEN`          | The bearer token the gateway presents on `POST /v1/decisions`. Required in production.                                                                                                                                                                                            |
++| `HUB_ACCESS_CONTEXT_TOKENS` | The credentials of the access context contract (§8bis): a JSON object whose keys are bearer tokens and whose values are the tenants every token may ask about. A `null` value is a credential of the platform.                                    |
+ | `HUB_STATE_SECRET`          | Signs and encrypts the state of a login (§5.3). 32 bytes at least. The same value on every replica.                                                                                                                                                                               |
+ | `HUB_SECRET_ENCRYPTION_KEY` | Encrypts the client secrets at rest (§4.3). 32 bytes.                                                                                                                                                                                                                             |
+ | `HUB_SIGNING_KEY`           | The private key of Hub, in PEM. The public part is published at `/oauth/jwks`.                                                                                                                                                                                                    |
+@@ -464,6 +465,7 @@ down.
+ | `HUB_REDIS_URL`           | The authorization codes have to be shared by the replicas, unless `HUB_ALLOW_MEMORY_STATE=true` names a deployment of a single node. |
+ | `HUB_ADMIN_TOKEN`         | It is the bearer token of the eight administrative endpoints.                     |
+ | `HUB_ACCESS_TOKEN`        | It is the bearer token the gateway presents on `POST /v1/decisions`.             |
++| `HUB_ACCESS_CONTEXT_TOKENS` | It holds the credentials of the access context contract (§8bis).              |
+ | `HUB_STATE_SECRET`        | It signs and encrypts the state of a login. At least 32 bytes.                  |
+ | `HUB_SECRET_ENCRYPTION_KEY` | It encrypts the client secrets at rest. At least 32 bytes.                    |
+ | `HUB_SIGNING_KEY`         | It is the private key Hub signs its tokens with, in PEM.                         |
+@@ -972,6 +974,137 @@ secret of the platform.
+ 
+ ---
+ 
++## 8bis. The access context
++
++> **Status: extension.** This section was added by the extension of the
++> access context contract, which is a required integration change of the
++> data backend. It does not change the contract of §8: the gateway keeps
++> using `POST /v1/decisions` and nothing of the gateway changes.
++
++A service that owns data needs more than a boolean. It needs to know
++**which** capabilities a principal holds, so that it can decide what the
++principal may read and what it may write. The decision of §8 answers
++"may this principal use this workspace on this route"; the access context
++answers "which capabilities does this principal hold for this workspace
++and this route".
++
++The two contracts read the same tables and they evaluate the same policy.
++The access context never replaces the decision: the gateway continues to
++use §8.
++
++### 8bis.1 The discovery
++
++```
++GET {HUB_ISSUER}/v1/access-context
++Authorization: Bearer {access context credential}
++```
++
++```json
++{"versions":[1],"maxPermissionKeys":4096,"maxLifetimeMs":5000}
++```
++
++The discovery is the readiness check of a consumer. A version the
++consumer does not know stops its readiness: a consumer that guesses the
++contract guesses the permissions.
++
++### 8bis.2 The request
++
++```
++POST {HUB_ISSUER}/v1/access-context
++Authorization: Bearer {access context credential}
++Content-Type: application/json
++
++{"version":1,"subject":"…","tenantId":"…","workspaceId":"…","routeId":"…"}
++```
++
++The body is at most 64 KiB. A field that is not known, a field of the
++wrong type and a version that is not supported are refused with
++`400 bad_request`.
++
++The credential of the access context is **not** the credential of the
++gateway and it is not a credential of the administration. It is a
++dedicated read only credential, and it is scoped to an explicit set of
++tenants:
++
++| Situation                                   | Answer  |
++| ------------------------------------------- | ------- |
++| A missing or wrong credential               | `401 unauthorized` |
++| A credential that may not ask about the tenant | `403 forbidden` |
++| A body that is not understood               | `400 bad_request` |
++| A policy that cannot be evaluated completely | `503 service_unavailable` |
++
++The scope of a credential is configured with `HUB_ACCESS_CONTEXT_TOKENS`,
++a JSON object whose keys are the bearer tokens and whose values are the
++lists of the tenants the token may ask about. A `null` value is a
++credential of the platform: it may ask about every tenant. It is a
++choice of the deployment and it is never the default of a credential of
++a tenant.
++
++### 8bis.3 The answer
++
++```json
++{
++  "version": 1,
++  "allow": true,
++  "subject": "…",
++  "tenantId": "…",
++  "workspaceId": "…",
++  "routeId": "…",
++  "permissionKeys": ["content.editor", "content.reader"],
++  "evaluatedAt": "2026-10-21T16:00:00.000Z",
++  "validUntil": "2026-10-21T16:00:05.000Z"
++}
++```
++
++`permissionKeys` is the **complete**, sorted and deduplicated set of the
++keys of the grants that apply to the request: the grants of the
++principal and the grants of the groups of the principal, the grants that
++are enabled, that are not revoked, that are not expired and whose
++workspace and route scope match the request or is unrestricted.
++
++The answer is never partial: more than 4096 keys is an error and never
++an allowance with fewer keys.
++
++`validUntil` is at most `evaluatedAt + 5000 ms` and at most the earliest
++expiry among the grants that contributed. A conservative earlier expiry
++is allowed. It is not a promise that a grant cannot be revoked before
++that instant.
++
++A denial is an answer of `200`: `allow` is false, `permissionKeys` is
++empty, `validUntil` is absent, and the answer does not disclose whether
++the cause was an unknown principal, another tenant, a disabled state or
++a missing grant.
++
++### 8bis.4 The rule
++
++Hub evaluates one consistent policy snapshot:
++
++1. The credential may ask about the requested tenant.
++2. The principal exists, is active and belongs to that tenant.
++3. The tenant is enabled.
++4. At least one enabled, unrevoked and unexpired grant applies to the
++   principal or to a group the principal belongs to.
++
++Hub does not own a catalog of the workspaces: the relation between a
++tenant and a workspace is the responsibility of the consumer. Hub still
++verifies that the principal belongs to the tenant of the request.
++
++### 8bis.5 The freshness
++
++The context is evaluated on every request and it is never cached by Hub.
++The consumer may cache a context for a read, and the bounds of the
++cache are the ones of the consumer: the cache of a consumer never holds
++a context longer than `validUntil`, and a mutation or a background
++command asks for a fresh context.
++
++The authorization is evaluated at the moment of the decision. A
++revocation that happens after that moment may leave a request that is
++already running in flight. The bound of that window is the lifetime of
++the cache of the consumer plus the duration of the request that is
++running. It is not a distributed transaction.
++
++---
++
+ ## 9. The administration
+ 
+ Five endpoints. That is the whole administration surface of Hub: there is
+diff --git a/src/app/access-context.test.ts b/src/app/access-context.test.ts
+new file mode 100644
+index 0000000..53d114f
+--- /dev/null
++++ b/src/app/access-context.test.ts
+@@ -0,0 +1,195 @@
++import { describe, expect, test } from 'bun:test'
++import { Hono } from 'hono'
++import {
++  accessContextDiscoveryHandler,
++  accessContextHandler,
++  type AccessContextCredential,
++} from './access-context'
++import type { AccessContextFacts, AccessContextRequest } from '../domains/authorization'
++
++const CREDENTIAL = 'access-context-credential-0001'
++const TENANT = '22222222-2222-4222-8222-222222222222'
++const OTHER_TENANT = '33333333-3333-4333-8333-333333333333'
++
++const credentials: AccessContextCredential[] = [
++  { token: CREDENTIAL, tenants: [TENANT] },
++  { token: 'platform-credential-0000000001', tenants: null },
++]
++
++/** The facts of the tests. */
++function factsOf(overrides: Partial<AccessContextFacts> = {}): AccessContextFacts {
++  return {
++    principalExists: true,
++    principalActive: true,
++    tenantEnabled: true,
++    permissionKeys: ['content.reader'],
++    earliestExpiry: null,
++    ...overrides,
++  }
++}
++
++/** The application of the tests. */
++function app(facts: AccessContextFacts = factsOf()): Hono {
++  const instance = new Hono()
++  const dependencies = {
++    store: { context: async (_request: AccessContextRequest) => facts },
++    credentials,
++  }
++  instance.get('/v1/access-context', (context) =>
++    accessContextDiscoveryHandler(context as never, dependencies)
++  )
++  instance.post('/v1/access-context', async (context) =>
++    await accessContextHandler(context as never, dependencies)
++  )
++  return instance
++}
++
++/** A request of a context. */
++function body(overrides: Record<string, unknown> = {}): Record<string, unknown> {
++  return {
++    version: 1,
++    subject: '11111111-1111-4111-8111-111111111111',
++    tenantId: TENANT,
++    workspaceId: '44444444-4444-4444-8444-444444444444',
++    routeId: 'data-api',
++    ...overrides,
++  }
++}
++
++describe('the discovery of the contract', () => {
++  test('it answers the version and the limits', async () => {
++    const response = await app().request('/v1/access-context', {
++      headers: { authorization: `Bearer ${CREDENTIAL}` },
++    })
++    expect(response.status).toBe(200)
++    const answer = (await response.json()) as Record<string, unknown>
++    expect(answer.versions).toEqual([1])
++    expect(answer.maxPermissionKeys).toBe(4096)
++    expect(answer.maxLifetimeMs).toBe(5000)
++  })
++
++  test('it refuses a request without a credential', async () => {
++    const response = await app().request('/v1/access-context')
++    expect(response.status).toBe(401)
++  })
++
++  test('it refuses a request with a wrong credential', async () => {
++    const response = await app().request('/v1/access-context', {
++      headers: { authorization: 'Bearer nope' },
++    })
++    expect(response.status).toBe(401)
++  })
++})
++
++describe('the evaluation of a context', () => {
++  test('it answers the complete set of the keys', async () => {
++    const response = await app(factsOf({ permissionKeys: ['b', 'a'] })).request(
++      '/v1/access-context',
++      {
++        method: 'POST',
++        headers: {
++          authorization: `Bearer ${CREDENTIAL}`,
++          'content-type': 'application/json',
++        },
++        body: JSON.stringify(body()),
++      }
++    )
++    expect(response.status).toBe(200)
++    const answer = (await response.json()) as Record<string, unknown>
++    expect(answer.allow).toBe(true)
++    expect(answer.permissionKeys).toEqual(['a', 'b'])
++    expect(answer.subject).toBe('11111111-1111-4111-8111-111111111111')
++    expect(answer.tenantId).toBe(TENANT)
++    expect(typeof answer.validUntil).toBe('string')
++  })
++
++  test('a refusal is an answer of 200 without a validity', async () => {
++    const response = await app(
++      factsOf({ permissionKeys: [], principalExists: false })
++    ).request('/v1/access-context', {
++      method: 'POST',
++      headers: {
++        authorization: `Bearer ${CREDENTIAL}`,
++        'content-type': 'application/json',
++      },
++      body: JSON.stringify(body()),
++    })
++    expect(response.status).toBe(200)
++    const answer = (await response.json()) as Record<string, unknown>
++    expect(answer.allow).toBe(false)
++    expect(answer.permissionKeys).toEqual([])
++    expect(answer.validUntil).toBeUndefined()
++  })
++
++  test('a credential of a tenant may not ask about another tenant', async () => {
++    const response = await app().request('/v1/access-context', {
++      method: 'POST',
++      headers: {
++        authorization: `Bearer ${CREDENTIAL}`,
++        'content-type': 'application/json',
++      },
++      body: JSON.stringify(body({ tenantId: OTHER_TENANT })),
++    })
++    expect(response.status).toBe(403)
++  })
++
++  test('a credential of the platform may ask about every tenant', async () => {
++    const response = await app().request('/v1/access-context', {
++      method: 'POST',
++      headers: {
++        authorization: 'Bearer platform-credential-0000000001',
++        'content-type': 'application/json',
++      },
++      body: JSON.stringify(body({ tenantId: OTHER_TENANT })),
++    })
++    expect(response.status).toBe(200)
++  })
++
++  test('it refuses an unknown field of the body', async () => {
++    const response = await app().request('/v1/access-context', {
++      method: 'POST',
++      headers: {
++        authorization: `Bearer ${CREDENTIAL}`,
++        'content-type': 'application/json',
++      },
++      body: JSON.stringify(body({ extra: true })),
++    })
++    expect(response.status).toBe(400)
++  })
++
++  test('it refuses an unsupported version', async () => {
++    const response = await app().request('/v1/access-context', {
++      method: 'POST',
++      headers: {
++        authorization: `Bearer ${CREDENTIAL}`,
++        'content-type': 'application/json',
++      },
++      body: JSON.stringify(body({ version: 2 })),
++    })
++    expect(response.status).toBe(400)
++  })
++
++  test('it refuses a body that is not json', async () => {
++    const response = await app().request('/v1/access-context', {
++      method: 'POST',
++      headers: {
++        authorization: `Bearer ${CREDENTIAL}`,
++        'content-type': 'application/json',
++      },
++      body: 'not json',
++    })
++    expect(response.status).toBe(400)
++  })
++
++  test('it refuses a body that is too large', async () => {
++    const response = await app().request('/v1/access-context', {
++      method: 'POST',
++      headers: {
++        authorization: `Bearer ${CREDENTIAL}`,
++        'content-type': 'application/json',
++      },
++      body: JSON.stringify(body({ padding: 'x'.repeat(70 * 1024) })),
++    })
++    expect(response.status).toBe(400)
++  })
++})
+diff --git a/src/app/access-context.ts b/src/app/access-context.ts
+new file mode 100644
+index 0000000..c9af8f0
+--- /dev/null
++++ b/src/app/access-context.ts
+@@ -0,0 +1,209 @@
++/**
++ * The contract of the access context (spec §9).
++ *
++ * The contract has two methods. The discovery tells a consumer which
++ * versions of the contract the service speaks and what its limits are.
++ * The evaluation answers the context of a principal: the complete set of
++ * the capabilities the principal holds for a workspace and a route.
++ *
++ * Both methods need a dedicated read only service credential. The
++ * credential is scoped to an explicit set of tenants: it authorizes the
++ * reading of a context and nothing else.
++ */
++
++import type { Context } from 'hono'
++import { timingSafeEqual } from 'node:crypto'
++import {
++  type AccessContextAnswer,
++  type AccessContextRequest,
++  type AccessContextStore,
++  ACCESS_CONTEXT_VERSION,
++  MAX_LIFETIME_MS,
++  MAX_PERMISSION_KEYS,
++  MAX_REQUEST_BYTES,
++  evaluateAccessContext,
++} from '../domains/authorization'
++import { jsonError } from './errors'
++import type { HubEnv } from './state'
++
++/** A credential of the contract. */
++export interface AccessContextCredential {
++  /** The bearer token of the credential. */
++  token: string
++  /** The tenants the credential may ask about, or null for every tenant. */
++  tenants: string[] | null
++}
++
++/** The dependencies of the contract. */
++export interface AccessContextDependencies {
++  /** The storage of the context. */
++  store: AccessContextStore
++  /** The credentials of the contract. */
++  credentials: AccessContextCredential[]
++  /** The observer of the service. */
++  observer?: {
++    recordDecision?: (result: 'allow' | 'deny', tenant: string, durationMs: number) => void
++  }
++}
++
++/** The fields of a request of a context. */
++const REQUEST_FIELDS = ['version', 'subject', 'tenantId', 'workspaceId', 'routeId']
++
++/** The refusal of a request that is not understood. */
++class InvalidRequestError extends Error {
++  constructor(message: string) {
++    super(message)
++    this.name = 'InvalidRequestError'
++  }
++}
++
++/** Compares two secrets in constant time. */
++function sameSecret(left: string, right: string): boolean {
++  const a = Buffer.from(left)
++  const b = Buffer.from(right)
++  if (a.length !== b.length) return false
++  return timingSafeEqual(a, b)
++}
++
++/**
++ * Reads the credential of a call.
++ *
++ * The credential of a tenant may only ask about the principals of that
++ * tenant. A credential of the platform may ask about every tenant: it is
++ * a choice of the deployment and not the default of a tenant credential.
++ */
++function readCredential(
++  header: string | undefined,
++  credentials: readonly AccessContextCredential[]
++): AccessContextCredential | null {
++  const value = (header ?? '').trim()
++  const match = /^Bearer\s+(.+)$/i.exec(value)
++  const presented = match?.[1]?.trim() ?? ''
++  if (!presented) return null
++  for (const credential of credentials) {
++    if (sameSecret(presented, credential.token)) return credential
++  }
++  return null
++}
++
++/** Reads the body of a request of a context. */
++async function readBody(context: Context<HubEnv>): Promise<AccessContextRequest> {
++  const text = await context.req.text()
++  if (Buffer.byteLength(text, 'utf8') > MAX_REQUEST_BYTES) {
++    throw new InvalidRequestError('the body is too large')
++  }
++  let parsed: unknown
++  try {
++    parsed = JSON.parse(text)
++  } catch {
++    throw new InvalidRequestError('the body is not json')
++  }
++  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
++    throw new InvalidRequestError('the body is not an object')
++  }
++  const body = parsed as Record<string, unknown>
++  const unknown = Object.keys(body).filter((key) => !REQUEST_FIELDS.includes(key))
++  if (unknown.length > 0) {
++    throw new InvalidRequestError(`the body has unknown fields: ${unknown.sort().join(', ')}`)
++  }
++  if (body.version !== ACCESS_CONTEXT_VERSION) {
++    throw new InvalidRequestError('the version of the contract is not supported')
++  }
++  for (const field of ['subject', 'tenantId', 'workspaceId', 'routeId']) {
++    if (typeof body[field] !== 'string' || (body[field] as string).length === 0) {
++      throw new InvalidRequestError(`the field "${field}" is required and it is a string`)
++    }
++  }
++  return {
++    subject: body.subject as string,
++    tenantId: body.tenantId as string,
++    workspaceId: body.workspaceId as string,
++    routeId: body.routeId as string,
++  }
++}
++
++/**
++ * `GET /v1/access-context`: the discovery of the contract.
++ *
++ * The discovery is the readiness check of a consumer: an unknown version
++ * stops the readiness of the consumer.
++ */
++export function accessContextDiscoveryHandler(
++  context: Context<HubEnv>,
++  dependencies: AccessContextDependencies
++): Response {
++  const credential = readCredential(context.req.header('authorization'), dependencies.credentials)
++  if (!credential) {
++    return jsonError(401, 'unauthorized', 'a valid access context credential is required')
++  }
++  return context.json({
++    versions: [ACCESS_CONTEXT_VERSION],
++    maxPermissionKeys: MAX_PERMISSION_KEYS,
++    maxLifetimeMs: MAX_LIFETIME_MS,
++  })
++}
++
++/**
++ * `POST /v1/access-context`: the context of a principal.
++ *
++ * A refusal is an answer of 200: the caller learns that the principal
++ * may not use the workspace, and it learns nothing about the cause.
++ */
++export async function accessContextHandler(
++  context: Context<HubEnv>,
++  dependencies: AccessContextDependencies
++): Promise<Response> {
++  const started = Date.now()
++  const credential = readCredential(context.req.header('authorization'), dependencies.credentials)
++  if (!credential) {
++    return jsonError(401, 'unauthorized', 'a valid access context credential is required')
++  }
++
++  let request: AccessContextRequest
++  try {
++    request = await readBody(context)
++  } catch (error) {
++    if (error instanceof InvalidRequestError) {
++      return jsonError(400, 'bad_request', error.message)
++    }
++    throw error
++  }
++
++  if (credential.tenants !== null && !credential.tenants.includes(request.tenantId)) {
++    return jsonError(403, 'forbidden', 'the credential may not ask about this tenant')
++  }
++
++  let facts
++  try {
++    facts = await dependencies.store.context(request)
++  } catch (error) {
++    return jsonError(503, 'service_unavailable', 'the context could not be computed')
++  }
++
++  const answer: AccessContextAnswer = evaluateAccessContext(facts, new Date())
++  if (answer.permissionKeys.length > MAX_PERMISSION_KEYS) {
++    // The answer is never partial: too many keys is a failure.
++    return jsonError(503, 'service_unavailable', 'the context is larger than the contract allows')
++  }
++
++  dependencies.observer?.recordDecision?.(
++    answer.allow ? 'allow' : 'deny',
++    request.tenantId,
++    Date.now() - started
++  )
++
++  const body: Record<string, unknown> = {
++    version: ACCESS_CONTEXT_VERSION,
++    allow: answer.allow,
++    subject: request.subject,
++    tenantId: request.tenantId,
++    workspaceId: request.workspaceId,
++    routeId: request.routeId,
++    permissionKeys: answer.permissionKeys,
++    evaluatedAt: answer.evaluatedAt.toISOString(),
++  }
++  if (answer.allow && answer.validUntil) {
++    body.validUntil = answer.validUntil.toISOString()
++  }
++  return context.json(body)
++}
+diff --git a/src/app/app.test.ts b/src/app/app.test.ts
+index 3372867..7175073 100644
+--- a/src/app/app.test.ts
++++ b/src/app/app.test.ts
+@@ -21,6 +21,8 @@ function dependencies(): HubDependencies {
+     administration: {} as HubDependencies['administration'],
+     provider: {} as HubDependencies['provider'],
+     decisions: { decide: async () => ({}) as never },
++    accessContexts: { context: async () => ({}) as never },
++    accessContextCredentials: [],
+     login: {} as HubDependencies['login'],
+     codes: {} as HubDependencies['codes'],
+     tenants: {} as HubDependencies['tenants'],
+diff --git a/src/app/app.ts b/src/app/app.ts
+index 5b603a9..41e43b8 100644
+--- a/src/app/app.ts
++++ b/src/app/app.ts
+@@ -20,6 +20,7 @@ import {
+   tenantsHandler,
+ } from './administration'
+ import { decisionHandler } from './decisions'
++import { accessContextDiscoveryHandler, accessContextHandler } from './access-context'
+ import { authorizeHandler, callbackHandler } from './login'
+ import { tokenHandler } from './oauth'
+ import { healthHandler, readyHandler } from './endpoints'
+@@ -125,6 +126,23 @@ export function createHubApp(dependencies: HubDependencies): Hono<HubEnv> {
+   // The decision contract of the gateway.
+   app.post('/v1/decisions', async (context) => await decisionHandler(context, dependencies))
+ 
++  // The access context contract: the complete set of the capabilities of
++  // a principal, for a consumer that owns data.
++  app.get('/v1/access-context', async (context) =>
++    accessContextDiscoveryHandler(context, {
++      store: dependencies.accessContexts,
++      credentials: dependencies.accessContextCredentials,
++      observer: dependencies.observer,
++    })
++  )
++  app.post('/v1/access-context', async (context) =>
++    await accessContextHandler(context, {
++      store: dependencies.accessContexts,
++      credentials: dependencies.accessContextCredentials,
++      observer: dependencies.observer,
++    })
++  )
++
+   // The metrics of the service.
+   app.get('/metrics', async (context) => await metricsHandler(context, dependencies))
+ 
+diff --git a/src/app/decisions.test.ts b/src/app/decisions.test.ts
+index ec46f51..ea78b20 100644
+--- a/src/app/decisions.test.ts
++++ b/src/app/decisions.test.ts
+@@ -30,6 +30,8 @@ function dependencies(decide: () => Promise<DecisionFacts>): HubDependencies {
+     tenants: {} as HubDependencies['tenants'],
+     cookieSecure: false,
+     decisions: { decide },
++    accessContexts: { context: async () => ({}) as never },
++    accessContextCredentials: [],
+     accessToken: TOKEN,
+     publicUrl: 'https://hub.example.com',
+     peerAddress: () => '127.0.0.1',
+diff --git a/src/app/dependencies.ts b/src/app/dependencies.ts
+index a272c4e..028922a 100644
+--- a/src/app/dependencies.ts
++++ b/src/app/dependencies.ts
+@@ -7,7 +7,8 @@
+  */
+ 
+ import type { AdministrationService } from '../domains/administration'
+-import type { DecisionStore } from '../domains/authorization'
++import type { AccessContextStore, DecisionStore } from '../domains/authorization'
++import type { AccessContextCredential } from './access-context'
+ import type { AuthorizationRequest, BegunLogin, CompletedLogin } from '../domains/identity'
+ import type { ProviderService, TokenPair } from '../domains/provider'
+ import type { Logger, Observer } from '../observability'
+@@ -86,6 +87,10 @@ export interface HubDependencies {
+   administration: AdministrationService
+   /** The decision of the gateway. */
+   decisions: DecisionStore
++  /** The storage of the access context. */
++  accessContexts: AccessContextStore
++  /** The credentials of the access context contract. */
++  accessContextCredentials: AccessContextCredential[]
+   /** The provider of the gateway: the JWKS, the discovery and the tokens. */
+   provider: ProviderService
+   /** The bearer token the gateway presents on the decisions. */
+diff --git a/src/domains/authorization/access-context.test.ts b/src/domains/authorization/access-context.test.ts
+new file mode 100644
+index 0000000..b244ced
+--- /dev/null
++++ b/src/domains/authorization/access-context.test.ts
+@@ -0,0 +1,87 @@
++import { describe, expect, test } from 'bun:test'
++import {
++  type AccessContextFacts,
++  evaluateAccessContext,
++  MAX_LIFETIME_MS,
++  MAX_PERMISSION_KEYS,
++} from './access-context'
++
++/** The facts of a principal that holds two keys. */
++function facts(overrides: Partial<AccessContextFacts> = {}): AccessContextFacts {
++  return {
++    principalExists: true,
++    principalActive: true,
++    tenantEnabled: true,
++    permissionKeys: ['content.editor', 'content.reader'],
++    earliestExpiry: null,
++    ...overrides,
++  }
++}
++
++describe('the rule of the access context', () => {
++  test('a principal that holds a grant may use the workspace', () => {
++    const answer = evaluateAccessContext(facts(), new Date('2026-10-21T16:00:00.000Z'))
++    expect(answer.allow).toBe(true)
++    expect(answer.permissionKeys).toEqual(['content.editor', 'content.reader'])
++  })
++
++  test('the keys are sorted and deduplicated', () => {
++    const answer = evaluateAccessContext(
++      facts({ permissionKeys: ['b', 'a', 'a'] }),
++      new Date('2026-10-21T16:00:00.000Z')
++    )
++    expect(answer.permissionKeys).toEqual(['a', 'b'])
++  })
++
++  test('an unknown principal is refused without a reason', () => {
++    const answer = evaluateAccessContext(
++      facts({ principalExists: false }),
++      new Date('2026-10-21T16:00:00.000Z')
++    )
++    expect(answer.allow).toBe(false)
++    expect(answer.permissionKeys).toEqual([])
++    expect(answer.validUntil).toBeNull()
++  })
++
++  test('a disabled principal is refused', () => {
++    const answer = evaluateAccessContext(
++      facts({ principalActive: false }),
++      new Date('2026-10-21T16:00:00.000Z')
++    )
++    expect(answer.allow).toBe(false)
++  })
++
++  test('a disabled tenant is refused', () => {
++    const answer = evaluateAccessContext(
++      facts({ tenantEnabled: false }),
++      new Date('2026-10-21T16:00:00.000Z')
++    )
++    expect(answer.allow).toBe(false)
++  })
++
++  test('a principal without a grant is refused', () => {
++    const answer = evaluateAccessContext(
++      facts({ permissionKeys: [] }),
++      new Date('2026-10-21T16:00:00.000Z')
++    )
++    expect(answer.allow).toBe(false)
++  })
++
++  test('the validity never exceeds the limit of the contract', () => {
++    const now = new Date('2026-10-21T16:00:00.000Z')
++    const answer = evaluateAccessContext(facts(), now)
++    expect(answer.validUntil!.getTime() - now.getTime()).toBe(MAX_LIFETIME_MS)
++  })
++
++  test('the validity never exceeds the earliest expiry of the grants', () => {
++    const now = new Date('2026-10-21T16:00:00.000Z')
++    const expiry = new Date(now.getTime() + 1000)
++    const answer = evaluateAccessContext(facts({ earliestExpiry: expiry }), now)
++    expect(answer.validUntil!.getTime()).toBe(expiry.getTime())
++  })
++
++  test('the limits of the contract are the ones of the specification', () => {
++    expect(MAX_PERMISSION_KEYS).toBe(4096)
++    expect(MAX_LIFETIME_MS).toBe(5000)
++  })
++})
+diff --git a/src/domains/authorization/access-context.ts b/src/domains/authorization/access-context.ts
+new file mode 100644
+index 0000000..ad62d18
+--- /dev/null
++++ b/src/domains/authorization/access-context.ts
+@@ -0,0 +1,102 @@
++/**
++ * The access context of a principal (spec §9).
++ *
++ * The gateway asks Hub whether a principal may use a workspace, and the
++ * answer is a boolean. A service that owns data needs more than a
++ * boolean: it needs the complete set of the capabilities of the
++ * principal, so that it can decide what the principal may read and what
++ * it may write.
++ *
++ * The access context is the contract that answers that question. It is
++ * evaluated on every request, it is never cached by Hub, and it carries
++ * the moment it stops being valid: a consumer that keeps it longer than
++ * that keeps a permission that was already revoked.
++ */
++
++/** The version of the contract. */
++export const ACCESS_CONTEXT_VERSION = 1
++
++/** The maximum number of the permission keys of an answer. */
++export const MAX_PERMISSION_KEYS = 4096
++
++/** The maximum lifetime of an answer, in milliseconds. */
++export const MAX_LIFETIME_MS = 5000
++
++/** The maximum size of the body of a request, in bytes. */
++export const MAX_REQUEST_BYTES = 64 * 1024
++
++/** The request of a context. */
++export interface AccessContextRequest {
++  /** The principal, as the gateway signed it. */
++  subject: string
++  /** The tenant the principal has to belong to. */
++  tenantId: string
++  /** The workspace of the request. */
++  workspaceId: string
++  /** The route of the request. */
++  routeId: string
++}
++
++/** The facts of a context, as the storage reads them. */
++export interface AccessContextFacts {
++  /** True when the principal exists in the tenant. */
++  principalExists: boolean
++  /** True when the principal is active. */
++  principalActive: boolean
++  /** True when the tenant of the principal is enabled. */
++  tenantEnabled: boolean
++  /** The complete set of the keys of the grants that apply. */
++  permissionKeys: string[]
++  /** The earliest expiry among the grants that apply. */
++  earliestExpiry: Date | null
++}
++
++/** The answer of a context. */
++export interface AccessContextAnswer {
++  /** True when the principal may use the workspace on the route. */
++  allow: boolean
++  /** The complete set of the keys of the grants that apply. */
++  permissionKeys: string[]
++  /** The moment the answer was computed. */
++  evaluatedAt: Date
++  /** The moment the answer stops being valid. */
++  validUntil: Date | null
++}
++
++/**
++ * The rule of the context.
++ *
++ * A principal may use a workspace on a route when it exists, when it is
++ * active, when its tenant is enabled and when at least one live grant
++ * applies to it. The keys of the answer are the keys of **all** the
++ * grants that apply, whatever the workspace and the route of the grant
++ * are: a consumer decides what the keys mean, Hub decides which ones are
++ * held.
++ */
++export function evaluateAccessContext(
++  facts: AccessContextFacts,
++  now: Date
++): AccessContextAnswer {
++  const keys = [...new Set(facts.permissionKeys)].sort()
++  if (!facts.principalExists || !facts.principalActive || !facts.tenantEnabled) {
++    return { allow: false, permissionKeys: [], evaluatedAt: now, validUntil: null }
++  }
++  if (keys.length === 0) {
++    return { allow: false, permissionKeys: [], evaluatedAt: now, validUntil: null }
++  }
++  const limit = new Date(now.getTime() + MAX_LIFETIME_MS)
++  const validUntil =
++    facts.earliestExpiry && facts.earliestExpiry < limit ? facts.earliestExpiry : limit
++  return { allow: true, permissionKeys: keys, evaluatedAt: now, validUntil }
++}
++
++/** The storage of the context. */
++export interface AccessContextStore {
++  /**
++   * The facts of a context.
++   *
++   * The reading is one statement over the tables of the policy: the
++   * context is not cached and it is computed on every request.
++   */
++  context: (request: AccessContextRequest) => Promise<AccessContextFacts>
++}
+diff --git a/src/domains/authorization/index.ts b/src/domains/authorization/index.ts
+index 055ee05..d02dd07 100644
+--- a/src/domains/authorization/index.ts
++++ b/src/domains/authorization/index.ts
+@@ -15,3 +15,16 @@ export type {
+   DecisionStore,
+ } from './decision'
+ export { decide, isMissingRole, REASONS } from './decision'
++export type {
++  AccessContextAnswer,
++  AccessContextFacts,
++  AccessContextRequest,
++  AccessContextStore,
++} from './access-context'
++export {
++  ACCESS_CONTEXT_VERSION,
++  MAX_LIFETIME_MS,
++  MAX_PERMISSION_KEYS,
++  MAX_REQUEST_BYTES,
++  evaluateAccessContext,
++} from './access-context'
+diff --git a/src/platform/postgres/access-context.ts b/src/platform/postgres/access-context.ts
+new file mode 100644
+index 0000000..8f6f06d
+--- /dev/null
++++ b/src/platform/postgres/access-context.ts
+@@ -0,0 +1,108 @@
++/**
++ * The reading of the access context (spec §9).
++ *
++ * The context is one statement over the tables of the policy: the
++ * principal, the tenant, the grants of the principal, the grants of the
++ * groups of the principal and the permissions of the grants.
++ *
++ * The statement returns the facts of the rule; the domain turns them into
++ * the answer of the protocol.
++ */
++
++import type {
++  AccessContextFacts,
++  AccessContextRequest,
++  AccessContextStore,
++} from '../../domains/authorization'
++import type { SqlClient } from './database'
++
++/** The row of the context, as the database holds it. */
++interface AccessContextRecord {
++  principal_exists: boolean
++  principal_active: boolean
++  tenant_enabled: boolean
++  permission_keys: string[] | null
++  earliest_expiry: Date | null
++}
++
++/**
++ * The statement of the context.
++ *
++ * The grants of the principal and the grants of the groups of the
++ * principal are read in one statement: a consumer that sees the keys of
++ * the grants of the principal and not the keys of the grants of its
++ * groups would refuse a permission that the principal holds.
++ *
++ * The scope of a grant is honoured: a grant of another workspace or of
++ * another route does not apply, and a grant of every workspace or of
++ * every route applies.
++ */
++const ACCESS_CONTEXT_SQL = `with principal as (
++    select u.id as user_id, u.status as status, t.enabled as tenant_enabled
++      from users u
++      join tenants t on t.id = u.tenant_id
++     where u.id = $1::uuid and u.tenant_id = $2::uuid
++   ), live as (
++    select p.key as key, g.expires_at as expires_at
++      from grants g
++      join permissions p on p.id = g.permission_id
++     where g.revoked_at is null
++       and p.enabled
++       and (g.workspace_id is null or g.workspace_id = $3)
++       and (g.route_id is null or g.route_id = $4)
++       and (
++         g.user_id = (select user_id from principal)
++         or (
++           g.group_id is not null
++           and exists (
++             select 1 from groups gr
++              where gr.id = g.group_id
++                and (select user_id from principal) = any(gr.members)
++           )
++         )
++       )
++   )
++   select
++     exists (select 1 from principal) as principal_exists,
++     coalesce((select status = 'active' from principal), false) as principal_active,
++     coalesce((select tenant_enabled from principal), false) as tenant_enabled,
++     coalesce((select jsonb_agg(distinct key) from live), '[]'::jsonb) as permission_keys,
++     (select min(expires_at) from live) as earliest_expiry`
++
++/** The storage of the context. */
++export class AccessContextRepository implements AccessContextStore {
++  constructor(private readonly db: SqlClient) {}
++
++  /**
++   * The facts of a context.
++   *
++   * A principal that does not exist, a principal of another tenant and a
++   * disabled tenant are the same thing for the answer: the caller is
++   * told nothing about the cause.
++   */
++  async context(request: AccessContextRequest): Promise<AccessContextFacts> {
++    const rows = await this.db.query<AccessContextRecord>(ACCESS_CONTEXT_SQL, [
++      request.subject,
++      request.tenantId,
++      request.workspaceId,
++      request.routeId,
++    ])
++    const row = rows[0]
++    if (!row) {
++      return {
++        principalExists: false,
++        principalActive: false,
++        tenantEnabled: false,
++        permissionKeys: [],
++        earliestExpiry: null,
++      }
++    }
++    return {
++      principalExists: row.principal_exists,
++      principalActive: row.principal_active,
++      tenantEnabled: row.tenant_enabled,
++      permissionKeys: Array.isArray(row.permission_keys) ? row.permission_keys : [],
++      earliestExpiry: row.earliest_expiry ? new Date(row.earliest_expiry) : null,
++    }
++  }
++}
+diff --git a/src/platform/postgres/index.ts b/src/platform/postgres/index.ts
+index d19dfaa..9c8f0c7 100644
+--- a/src/platform/postgres/index.ts
++++ b/src/platform/postgres/index.ts
+@@ -19,6 +19,7 @@ export { createDatabase } from './factory'
+ export type { Migration, MigrationResult } from './migrations'
+ export { MIGRATIONS_DIRECTORY, MIGRATIONS_TABLE, readMigrations, runMigrations } from './migrations'
+ export type { DecisionFacts, DecisionRequest } from '../../domains/authorization'
++export { AccessContextRepository } from './access-context'
+ export { DecisionRepository, TimeoutError, withTimeout } from './decisions'
+ export type { GrantRow, NewGrant } from './grants'
+ export { GrantRepository } from './grants'
+diff --git a/src/runtime/composition.ts b/src/runtime/composition.ts
+index 01aa0d0..2e6e67b 100644
+--- a/src/runtime/composition.ts
++++ b/src/runtime/composition.ts
+@@ -8,6 +8,7 @@
+  */
+ 
+ import { createHubApp, createHubHandler } from '../app/app'
++import type { AccessContextCredential } from '../app/access-context'
+ import { LoginService, ProviderClient, createStateCipher } from '../domains/identity'
+ import { CodeService, ProviderService } from '../domains/provider'
+ import { assertCallableAddress } from '../platform/bun/address'
+@@ -21,6 +22,7 @@ import {
+   createDatabase,
+   createSecretCipher,
+   createTracedClient,
++  AccessContextRepository,
+   DecisionRepository,
+   GrantRepository,
+   GroupRepository,
+@@ -411,6 +413,10 @@ export async function createRuntime(settings: RuntimeSettings): Promise<HubRunti
+     // policy, with the deadline of the deployment.
+     decisions: new DecisionRepository(traced, settings.timeouts.decisionTimeoutMs),
+     accessToken: settings.access.token,
++    // The access context contract: the same tables of the policy, read
++    // with the complete set of the keys of the grants.
++    accessContexts: new AccessContextRepository(traced),
++    accessContextCredentials: readAccessContextCredentials(settings.access.contextTokens),
+     metricsToken: settings.metrics.token,
+     // The administration of the platform: the eight endpoints of the
+     // specification, and nothing else.
+@@ -474,3 +480,40 @@ export async function createRuntime(settings: RuntimeSettings): Promise<HubRunti
+     close: closeResources,
+   }
+ }
++
++
++/**
++ * Reads the credentials of the access context contract.
++ *
++ * The value is a json object: every key is a bearer token and every
++ * value holds the tenants the token may ask about. A malformed value
++ * stops the service: a credential that is not understood is a credential
++ * that is not scoped.
++ */
++function readAccessContextCredentials(raw: string | undefined): AccessContextCredential[] {
++  if (!raw || raw.trim().length === 0) return []
++  let parsed: unknown
++  try {
++    parsed = JSON.parse(raw)
++  } catch {
++    throw new Error('HUB_ACCESS_CONTEXT_TOKENS must be a json object')
++  }
++  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
++    throw new Error('HUB_ACCESS_CONTEXT_TOKENS must be a json object')
++  }
++  const credentials: AccessContextCredential[] = []
++  for (const [token, scope] of Object.entries(parsed as Record<string, unknown>)) {
++    if (token.length < 16) {
++      throw new Error('a credential of the access context is at least 16 characters long')
++    }
++    if (scope === null) {
++      credentials.push({ token, tenants: null })
++      continue
++    }
++    if (!Array.isArray(scope) || scope.some((entry) => typeof entry !== 'string')) {
++      throw new Error('the scope of a credential of the access context is a list of tenants')
++    }
++    credentials.push({ token, tenants: scope as string[] })
++  }
++  return credentials
++}
+diff --git a/src/runtime/env.ts b/src/runtime/env.ts
+index ee02f5f..c95869e 100644
+--- a/src/runtime/env.ts
++++ b/src/runtime/env.ts
+@@ -68,6 +68,15 @@ export interface AdminSettings {
+ export interface AccessSettings {
+   /** The bearer token the gateway presents on `POST /v1/decisions`. */
+   token?: string
++  /**
++   * The credentials of the access context contract.
++   *
++   * The value is a json object: every key is a bearer token and every
++   * value holds the tenants the token may ask about. A `null` scope
++   * means every tenant: it is a choice of the deployment and not the
++   * default of a tenant credential.
++   */
++  contextTokens?: string
+ }
+ 
+ /** The settings of the metrics. */
+@@ -193,6 +202,7 @@ const EnvSchema = z.object({
+ 
+   HUB_ADMIN_TOKEN: z.string().optional(),
+   HUB_ACCESS_TOKEN: z.string().optional(),
++  HUB_ACCESS_CONTEXT_TOKENS: z.string().optional(),
+   HUB_METRICS_TOKEN: z.string().optional(),
+ 
+   HUB_STATE_SECRET: z.string().optional(),
+@@ -402,6 +412,7 @@ export function readEnv(env: Env = process.env): RuntimeSettings {
+     },
+     access: {
+       token: parsed.HUB_ACCESS_TOKEN,
++      contextTokens: parsed.HUB_ACCESS_CONTEXT_TOKENS,
+     },
+     metrics: {
+       token: parsed.HUB_METRICS_TOKEN,
+-- 
+2.39.5
+

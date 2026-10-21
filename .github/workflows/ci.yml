@@ -1,0 +1,72 @@
+name: the checks of the data backend
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: depot
+          POSTGRES_PASSWORD: depot
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U depot"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+      - name: the installation
+        run: bun install --frozen-lockfile
+      - name: the types
+        run: bun run typecheck
+      - name: the style
+        run: |
+          bun run lint
+          bun run format:check
+      - name: the boundaries
+        run: bun run architecture
+      - name: the rules of the domains
+        run: bun test test/unit
+      - name: the contract of the api
+        run: bun test test/contract
+      - name: the architecture
+        run: bun test test/architecture
+      - name: the consumer of the client
+        run: bun test packages/client/test
+      - name: the database, the transactions and the worker
+        run: bun test test/integration
+        env:
+          # The tests start their own server; the service of the CI is
+          # here for the deployments that want to use it.
+          TEST_DATABASE_URL: postgres://depot:depot@127.0.0.1:5432/postgres
+
+  compatibility:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+      - name: the installation
+        run: bun install --frozen-lockfile
+      - name: the installation of the postgres
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql postgresql-client
+      - name: the gateway, the hub and the backend
+        run: bun run test:compat
+        env:
+          SHUTTLE_REPOSITORY: https://github.com/ggpwnkthx/shuttle
+          HUB_REPOSITORY: https://github.com/ggpwnkthx/hub

@@ -1,0 +1,121 @@
+# The operations of the service
+
+## The probes
+
+| Endpoint | Contract |
+| --- | --- |
+| `GET /healthz` | `200` while the process is alive. It calls no dependency. |
+| `GET /readyz` | `200` only when the configuration, the schema, the privileges of the role and the discovery of the hub are in order. `503` with a safe reason otherwise. |
+| `GET /metrics` | The metrics of the service. `404` when the endpoint is disabled, `401` when the bearer token is missing or wrong. |
+
+The probes are not routed through the authorization of a workspace: a
+probe of an operator is not a caller of a tenant.
+
+The readiness of the api checks:
+
+1. the role of the connection is not a superuser and does not have
+   `BYPASSRLS`,
+2. the applied migrations are the ones of the repository, with the same
+   checksums,
+3. the discovery of the hub spoke the version of the access context
+   contract in the last ten seconds.
+
+The readiness of a worker checks the delivery store as well, and it
+refuses to be ready without a registered subscriber.
+
+## The metrics
+
+The endpoint answers the Prometheus text format. The labels are
+bounded: the route is a pattern, the method and the status are short,
+and a tenant, a principal, a workspace, a record identifier, a url, an
+e-mail address and a query never become a label.
+
+| Metric | What it counts |
+| --- | --- |
+| `data_requests_total` | The requests, by route, method and status. |
+| `data_request_duration_ms` | The duration of the requests. |
+| `data_hub_requests_total`, `data_hub_duration_ms` | The calls to the hub. |
+| `data_context_cache_hits_total`, `data_context_cache_misses_total` | The cache of the context. |
+| `data_db_pool_waits_total`, `data_db_acquire_duration_ms` | The waits for a connection. |
+| `data_authorization_denials_total` | The refusals of the authorization. |
+| `data_transaction_rollbacks_total` | The rolled back transactions. |
+| `data_outbox_backlog`, `data_outbox_oldest_age_seconds` | The deliveries that are not finished and the age of the oldest. |
+| `data_delivery_failures_total`, `data_delivery_retries_total` | The failed and the retried deliveries. |
+| `data_draining` | `1` while the process drains. |
+| `data_in_flight_requests` | The requests that are handled. |
+
+The backlog and the age of the oldest delivery are the capacity of the
+outbox. A backlog that grows is a subscriber that does not keep up, and
+the retention of the completed events is bounded by seven days: a
+backlog that lasts longer than that is a deployment that needs more
+workers.
+
+## The logs
+
+The log is a stream of JSON objects on the standard output. Every record
+carries the level, the time, the message and the fields of the caller.
+
+The fields that carry a secret, a credential, a cookie, a signature, a
+body, a filter or an e-mail address are redacted before the record is
+written. The redaction works on the names of the fields, so a caller
+that renames a field does not leak it: the callers of the service never
+pass one.
+
+The refusals of the authorization are observable: the code of the error
+is in the log and the reason of the hub is not. The reason of a refusal
+belongs to the operator, not to the caller.
+
+## The drain
+
+On `SIGTERM` or `SIGINT` the process:
+
+1. becomes unready and stops admitting the requests: the new requests
+   answer `503 DRAINING`,
+2. lets the requests that are running finish, with a budget of thirty
+   seconds (`DATA_DRAIN_MS`),
+3. stops the workers and releases the leases of the deliveries that were
+   not finished, so that another worker claims them,
+4. closes the listener and the pools, exactly once.
+
+A connection whose transaction was aborted or whose state is unknown is
+destroyed: it never returns to the pool. A mutation that was committed
+before the disconnect stays committed, and the receipt of the creation
+resolves the ambiguous result of a `POST`.
+
+## The budgets
+
+| Setting | Default | What it bounds |
+| --- | --- | --- |
+| `DATA_REQUEST_TIMEOUT_MS` | 10000 | The whole work of a request. |
+| `DATA_HUB_TIMEOUT_MS` | 1000 | A call to the hub. |
+| `DATA_DB_STATEMENT_TIMEOUT_MS` | 3000 | A statement. The server cancels it. |
+| `DATA_DB_TRANSACTION_TIMEOUT_MS` | 5000 | A transaction. The connection is destroyed when the budget is spent. |
+| `DATA_DB_ACQUIRE_TIMEOUT_MS` | 1000 | The wait for a connection. |
+| `DATA_MAX_IN_FLIGHT_REQUESTS` | 200 | The requests that are handled at the same time. |
+| `DATA_MAX_BODY_BYTES` | 1048576 | The body of a request. The body of a record is 256 KiB. |
+| `DATA_DB_POOL_MAX` | 20 | The connections of the process. |
+
+The effective timeout of a request is the smallest of the budgets that
+apply to it. A timer that leaves a statement running is not a
+cancellation: the statement timeout is a server side cancellation, and
+the transaction timeout destroys the connection, so the server rolls
+the transaction back.
+
+## The rotation of the secrets
+
+| Secret | Where it lives | The rotation |
+| --- | --- | --- |
+| The derived identity key of the gateway | The file of the binding | It is a coordinated operation: the gateway and the backend change it together. The two accept a moment with two keys? No: the backend holds one key per binding. A rotation is a change of the configuration of the backend and a restart. |
+| The credential of the access context | `DATA_HUB_CONTEXT_TOKEN_FILE` | It is changed at the hub first, then at the backend. The backend answers `503 AUTHORIZATION_UNAVAILABLE` while the two do not agree. |
+| The key of the cursors | `DATA_CURSOR_KEY_FILE` | A change invalidates the cursors that are alive: the clients receive `400 INVALID_CURSOR` and they start again. |
+| The password of the roles | The secret manager | `scripts/provision.ts` changes it. The pools reconnect. |
+
+## The alarms
+
+| Signal | What it means | What to do |
+| --- | --- | --- |
+| `data_outbox_oldest_age_seconds` grows | A subscriber does not keep up. | More workers, or a subscriber that fails. See `data_delivery_failures_total`. |
+| `data_delivery_failures_total` grows | A handler fails, or a subscriber is missing after a deployment. | `bun run scripts/delivery.ts list`, then requeue with the attribution of the operator. |
+| `data_authorization_denials_total` grows | A client asks for what it may not have, or a grant was revoked. | The code of the error and the route are enough to know the client. |
+| `data_db_pool_waits_total` grows | The pool is too small, or the database is slow. | The pool, the statement timeout, the indexes of the collection. |
+| `/readyz` answers 503 | A dependency is not in order. | The reason of the answer names the dependency. |

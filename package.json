@@ -1,0 +1,46 @@
+{
+  "name": "data-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Headless Data Backend: permission aware data APIs behind Shuttle, authorized by Hub.",
+  "engines": {
+    "bun": ">=1.4.3"
+  },
+  "scripts": {
+    "start": "bun run src/main.ts",
+    "dev": "bun --watch src/main.ts",
+    "migrate": "bun run scripts/migrate.ts",
+    "workspace": "bun run scripts/workspace.ts",
+    "delivery": "bun run scripts/delivery.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome lint .",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "architecture": "bun run scripts/architecture.ts",
+    "test": "bun test test/unit test/contract",
+    "test:unit": "bun test test/unit",
+    "test:contract": "bun test test/contract",
+    "test:integration": "bun test test/integration",
+    "test:compat": "bun run scripts/compatibility.ts",
+    "test:client": "bun test packages/client/test",
+    "test:all": "bun test test/unit test/contract test/integration test/architecture packages/client/test",
+    "test:architecture": "bun test test/architecture",
+    "capacity": "bun run scripts/capacity.ts",
+    "retention": "bun run scripts/retention.ts",
+    "provision": "bun run scripts/provision.ts",
+    "fixtures": "bun run scripts/generate-fixtures.ts"
+  },
+  "dependencies": {
+    "hono": "4.13.13",
+    "jose": "6.2.12",
+    "pg": "8.16.3",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@types/bun": "1.4.3",
+    "@types/pg": "^8.15.6",
+    "typescript": "5.9.3"
+  }
+}

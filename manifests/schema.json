@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "schemaVersion": "articles-v1",
+  "collections": [
+    {
+      "key": "articles",
+      "table": "data.articles",
+      "label": "Articles",
+      "description": "The articles of a workspace.",
+      "fields": {
+        "title": {
+          "type": "string",
+          "required": true,
+          "nullable": false,
+          "maxLength": 240,
+          "label": "Title"
+        },
+        "body": {
+          "type": "text",
+          "required": false,
+          "nullable": true,
+          "maxLength": 200000,
+          "label": "Body"
+        },
+        "status": {
+          "type": "enum",
+          "required": false,
+          "nullable": false,
+          "enum": ["draft", "review", "published"],
+          "default": "draft",
+          "label": "Status"
+        },
+        "category_id": {
+          "type": "uuid",
+          "required": false,
+          "nullable": true
+        },
+        "parent_id": {
+          "type": "uuid",
+          "required": false,
+          "nullable": true
+        }
+      },
+      "relations": {
+        "category": {
+          "target": "categories",
+          "type": "many-to-one",
+          "field": "category_id",
+          "label": "Category"
+        },
+        "parent": {
+          "target": "articles",
+          "type": "many-to-one",
+          "field": "parent_id",
+          "label": "Parent"
+        },
+        "children": {
+          "target": "articles",
+          "type": "one-to-many",
+          "field": "parent_id",
+          "label": "Children"
+        }
+      }
+    },
+    {
+      "key": "categories",
+      "table": "data.categories",
+      "label": "Categories",
+      "description": "The categories of the articles of a workspace.",
+      "fields": {
+        "name": {
+          "type": "string",
+          "required": true,
+          "nullable": false,
+          "maxLength": 120,
+          "label": "Name"
+        }
+      },
+      "relations": {}
+    },
+    {
+      "key": "article_stats",
+      "table": "data.article_stats",
+      "label": "Article statistics",
+      "description": "The projection the subscriber writes for every article.",
+      "fields": {
+        "article_id": {
+          "type": "uuid",
+          "required": true,
+          "nullable": false
+        },
+        "word_count": {
+          "type": "integer",
+          "required": true,
+          "nullable": false,
+          "minimum": 0
+        },
+        "event_id": {
+          "type": "uuid",
+          "required": true,
+          "nullable": false
+        }
+      },
+      "relations": {
+        "article": {
+          "target": "articles",
+          "type": "many-to-one",
+          "field": "article_id",
+          "label": "Article"
+        }
+      }
+    }
+  ]
+}
