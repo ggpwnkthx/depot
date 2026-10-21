@@ -471,11 +471,30 @@ export function compileFilter(node: FilterNode, options: CompileFilterOptions): 
 }
 
 /**
+ * Reports whether a value of a row is the null of the database.
+ *
+ * A field that the row does not carry is the null of the column: the
+ * two are the same absence in the two evaluations.
+ */
+function isNull(value: unknown): boolean {
+  return value === null || value === undefined
+}
+
+/**
  * Evaluates a filter against a row that is already in memory.
  *
  * The evaluation is used by the write rules, where the row is locked and
- * its values are known. It uses the same rules as the compiled form, so
- * a row that is accepted in memory is the row the statement would find.
+ * its values are known, and by the representation of a single record.
+ * It uses the same rules as the compiled form, so a row that is accepted
+ * in memory is the row the statement would find.
+ *
+ * **The null follows the three valued logic of the database.** A
+ * comparison with a null value is unknown and never true: `status <> 'x'`
+ * does not match a row whose status is null, exactly as the statement
+ * does not match it. Only `_is_null` matches a null value. The two
+ * evaluations have to agree: a row that the read hides because the
+ * statement does not match it may not be written, and its fields may not
+ * be shown, because the rules of the write path would answer otherwise.
  */
 export function evaluateFilter(
   node: FilterNode,
@@ -489,6 +508,12 @@ export function evaluateFilter(
     if (current.kind === 'or') return current.nodes.some(walk)
     const value = row[current.field]
     const operand = current.value
+    if (current.operator === '_is_null') {
+      return operand === true ? isNull(value) : !isNull(value)
+    }
+    // Every other operator compares a value with the null of the column:
+    // the answer of the database is unknown and it is never true.
+    if (isNull(value)) return false
     switch (current.operator) {
       case '_eq':
         return valuesEqual(value, operand)
@@ -502,10 +527,6 @@ export function evaluateFilter(
         return compareValues(value, operand) > 0
       case '_gte':
         return compareValues(value, operand) >= 0
-      case '_is_null':
-        return operand === true
-          ? value === null || value === undefined
-          : value !== null && value !== undefined
       case '_in':
         return (current.values ?? []).some((entry) => valuesEqual(value, entry))
       case '_nin':

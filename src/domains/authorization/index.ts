@@ -12,6 +12,7 @@
 
 import type { Clock } from '../../protocol/clock'
 import { ServiceError } from '../../protocol/errors'
+import type { Metrics } from '../../observability/metrics'
 import {
   type AccessContext,
   type AccessContextClient,
@@ -125,6 +126,8 @@ export interface ContextResolverOptions {
   readonly clock: Clock
   /** The limits of the contract, when they are known. */
   readonly limits?: { maxPermissionKeys: number; maxLifetimeMs: number }
+  /** The metrics of the process. */
+  readonly metrics?: Metrics
 }
 
 /**
@@ -189,9 +192,15 @@ export class ContextResolver {
     if (!options.fresh && this.#options.cacheTtlMs > 0) {
       const entry = this.#cache.get(key)
       if (entry && entry.expiresAt > this.#options.clock.monotonic()) {
+        this.#options.metrics?.increment('data_context_cache_hits_total')
         return this.#toResolved(entry, options)
       }
       this.#cache.delete(key)
+      this.#options.metrics?.increment('data_context_cache_misses_total')
+    } else if (!options.fresh) {
+      // The cache is off: every read asks the hub, and the miss is
+      // counted as well, so the metric says what the deployment does.
+      this.#options.metrics?.increment('data_context_cache_misses_total')
     }
 
     const raw = await this.#options.client.evaluate(request)

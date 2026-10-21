@@ -80,7 +80,7 @@ export interface Harness {
 }
 
 /** Builds the harness. */
-export async function createHarness(): Promise<Harness> {
+export async function createHarness(options: { policies?: string } = {}): Promise<Harness> {
   const database = await testDatabase()
   await database.reset()
   await database.seed([
@@ -89,7 +89,10 @@ export async function createHarness(): Promise<Harness> {
   ])
   const hub = await startFakeHub()
   const manifest = parseManifestBundle(await readFile('manifests/schema.json'))
-  const bundle = parsePolicyBundle(await readFile('manifests/policies.json'), manifest)
+  const bundle = parsePolicyBundle(
+    options.policies ?? (await readFile('manifests/policies.json')),
+    manifest
+  )
 
   const dataPool = new ConnectionPool({
     url: database.runtimeUrl,

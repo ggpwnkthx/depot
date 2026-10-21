@@ -70,3 +70,65 @@ jobs:
         env:
           SHUTTLE_REPOSITORY: https://github.com/ggpwnkthx/shuttle
           HUB_REPOSITORY: https://github.com/ggpwnkthx/hub
+
+  # The image of the service is a part of the release: it is built, it is
+  # started, and it answers its probes with the artifacts that the
+  # deployment mounts. An image that is never started is an image that
+  # rots.
+  image:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: depot
+          POSTGRES_PASSWORD: depot
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U depot"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: the build of the image
+        run: docker build --tag depot:test .
+      - name: the image carries the artifacts of the service
+        run: |
+          docker run --rm depot:test bun -e "
+            const files = ['src/main.ts','manifests/schema.json','manifests/policies.json','migrations/0004_isolation.sql'];
+            for (const file of files) {
+              if (!(await Bun.file('/app/' + file).exists())) { console.error('the file ' + file + ' is missing'); process.exit(1); }
+            }
+            console.log('the image carries the artifacts of the service');
+          "
+      - name: the service of the image answers its probe
+        run: |
+          docker network create depot-ci
+          docker run -d --name depot-pg --network depot-ci -e POSTGRES_USER=depot -e POSTGRES_PASSWORD=depot -e POSTGRES_DB=postgres postgres:16-alpine
+          until docker exec depot-pg pg_isready -U depot; do sleep 1; done
+          docker run --rm --network depot-ci -e DATA_ADMIN_DATABASE_URL=postgres://depot:depot@depot-pg:5432/postgres -e DATA_OWNER_DATABASE_URL=postgres://data_owner:ci-owner-password-000001@depot-pg:5432/depot -e DATA_OWNER_PASSWORD=ci-owner-password-000001 -e DATA_RUNTIME_PASSWORD=ci-runtime-password-00001 -e DATA_REGISTRY_PASSWORD=ci-registry-password-0001 -e DATA_DELIVERY_PASSWORD=ci-delivery-password-0001 -e DATA_MAINTENANCE_PASSWORD=ci-maintenance-password-001 depot:test sh -c "bun run scripts/provision.ts && bun run scripts/migrate.ts"
+          docker run -d --name depot-api --network depot-ci \
+            -e DATA_ENVIRONMENT=development \
+            -e DATA_HOST=0.0.0.0 -e DATA_PORT=8082 \
+            -e DATA_PROCESS_ROLE=api \
+            -e DATA_DATABASE_URL=postgres://data_runtime:ci-runtime-password-00001@depot-pg:5432/depot \
+            -e DATA_REGISTRY_DATABASE_URL=postgres://data_registry:ci-registry-password-0001@depot-pg:5432/depot \
+            -e DATA_SCHEMA_BUNDLE_FILE=/app/manifests/schema.json \
+            -e DATA_POLICY_BUNDLE_FILE=/app/manifests/policies.json \
+            -e DATA_SHUTTLE_BINDINGS_FILE=/etc/depot/bindings.json \
+            -e DATA_HUB_URL=http://127.0.0.1:9 \
+            -e DATA_HUB_CONTEXT_TOKEN_FILE=/run/secrets/hub-context.token \
+            -e DATA_CURSOR_KEY_FILE=/run/secrets/cursor.key \
+            -v $PWD/deploy/bindings.json:/etc/depot/bindings.json:ro \
+            -v $PWD/deploy/secrets:/run/secrets:ro \
+            -p 8082:8082 depot:test
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8082/healthz > /dev/null; then echo 'the service of the image answers its probe'; exit 0; fi
+            sleep 1
+          done
+          echo 'the service of the image did not answer its probe'
+          docker logs depot-api
+          exit 1

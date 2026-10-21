@@ -62,6 +62,9 @@ export const FIRST_RETRY_MS = 1000
 /** The longest delay of a retry, in milliseconds. */
 export const MAX_RETRY_MS = 5 * 60 * 1000
 
+/** The number of ticks between two readings of the backlog. */
+const BACKLOG_READING_TICKS = 10
+
 /**
  * The delay of the next attempt.
  *
@@ -80,6 +83,7 @@ export class SubscriberWorker {
   #running = false
   #loop: Promise<void> | null = null
   #stop: (() => void) | null = null
+  #ticks = 0
 
   constructor(options: WorkerOptions) {
     this.#options = options
@@ -144,11 +148,37 @@ export class SubscriberWorker {
       limit: this.#options.concurrency,
       leaseMs: this.#options.leaseMs,
     })
-    if (deliveries.length === 0) return false
+    if (deliveries.length === 0) {
+      await this.#readBacklog(false)
+      return false
+    }
     for (const delivery of deliveries) {
       await this.#handle(delivery)
     }
+    await this.#readBacklog(true)
     return true
+  }
+
+  /**
+   * Reads the backlog of the deliveries and publishes it.
+   *
+   * The reading is an aggregate over the table of the deliveries, so an
+   * idle worker does not take it on every tick: it reads it every tenth
+   * tick, and a worker that handled deliveries reads it at the end of
+   * the tick.
+   */
+  async #readBacklog(force: boolean): Promise<void> {
+    this.#ticks += 1
+    if (!force && this.#ticks % BACKLOG_READING_TICKS !== 0) return
+    try {
+      const backlog = await this.#options.store.backlog()
+      this.#options.metrics.set('data_outbox_backlog', backlog.pending)
+      this.#options.metrics.set('data_outbox_oldest_age_seconds', backlog.oldestSeconds)
+    } catch (error) {
+      this.#options.logger.warn('the backlog of the deliveries could not be read', {
+        error: error instanceof Error ? error.message : 'unknown error',
+      })
+    }
   }
 
   /** Runs the handler of one delivery. */

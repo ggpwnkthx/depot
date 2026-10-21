@@ -100,6 +100,7 @@ export async function createRuntime(options: CompositionOptions = {}): Promise<R
     statementTimeoutMs: settings.database.statementTimeoutMs,
     acquireTimeoutMs: settings.database.acquireTimeoutMs,
     applicationName: 'data-backend',
+    metrics,
   })
   const registryPool = new ConnectionPool({
     url: settings.database.registryUrl,
@@ -120,6 +121,7 @@ export async function createRuntime(options: CompositionOptions = {}): Promise<R
   const store = new PostgresDataStore(dataPool, {
     statementTimeoutMs: settings.database.statementTimeoutMs,
     transactionTimeoutMs: settings.database.transactionTimeoutMs,
+    metrics,
   })
   const registry = new PostgresWorkspaceRegistry(registryPool)
   const auditSink = new PostgresAuditSink()
@@ -132,12 +134,14 @@ export async function createRuntime(options: CompositionOptions = {}): Promise<R
     baseUrl: settings.hub.url,
     credential: settings.hub.credential,
     timeoutMs: settings.hub.timeoutMs,
+    metrics,
   })
   const resolver = new ContextResolver({
     client: hubClient,
     cacheTtlMs: settings.hub.contextCacheTtlMs,
     credentialScope: settings.hub.credential.slice(0, 8),
     clock: systemClock,
+    metrics,
   })
 
   // The records.

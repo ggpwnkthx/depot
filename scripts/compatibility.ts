@@ -24,6 +24,7 @@
  */
 
 import { spawn, spawnSync, type Subprocess } from 'bun'
+import { existsSync } from 'node:fs'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -42,6 +43,16 @@ const HUB_COMMIT = process.env.HUB_COMMIT ?? '4cedcfc48e9bb4eb556d2316eb502e1ab8
 const SHUTTLE_REPOSITORY = process.env.SHUTTLE_REPOSITORY ?? 'https://github.com/ggpwnkthx/shuttle'
 /** The repository of the hub. */
 const HUB_REPOSITORY = process.env.HUB_REPOSITORY ?? 'https://github.com/ggpwnkthx/hub'
+/**
+ * The directory of the local mirrors.
+ *
+ * The harness needs the pinned revisions of the gateway and of the hub.
+ * It fetches them from the network when it can, and it takes them from
+ * the mirrors when it cannot: a directory that holds a bare repository
+ * named `shuttle.git` and a bare repository named `hub.git`. The mirrors
+ * are the way to run the harness in a deployment without the network.
+ */
+const COMPAT_MIRROR = process.env.COMPAT_MIRROR ?? ''
 
 /** The secrets of the harness. They are fixtures of a test. */
 const SESSION_SECRET = 'compatibility-session-secret-0001'
@@ -97,14 +108,40 @@ async function waitFor(url: string, timeoutMs = 60_000): Promise<void> {
 
 /** Clones a repository at a commit. */
 function clone(repository: string, commit: string, directory: string): void {
-  const clone = spawnSync(['git', 'clone', '--quiet', repository, directory])
+  const source = sourceOf(repository)
+  const clone = spawnSync(['git', 'clone', '--quiet', source, directory])
   if (clone.exitCode !== 0) {
-    throw new Error(`the clone of ${repository} failed: ${clone.stderr.toString()}`)
+    throw new Error(
+      `the clone of ${source} failed: ${clone.stderr.toString()}. ` +
+        `Set SHUTTLE_REPOSITORY or HUB_REPOSITORY to a local checkout that holds ${commit}, ` +
+        'or set COMPAT_MIRROR to a directory that holds the bare mirrors.'
+    )
   }
   const checkout = spawnSync(['git', 'checkout', '--quiet', commit], { cwd: directory })
   if (checkout.exitCode !== 0) {
-    throw new Error(`the checkout of ${commit} failed: ${checkout.stderr.toString()}`)
+    throw new Error(
+      `the checkout of ${commit} failed: ${checkout.stderr.toString()}. ` +
+        `The source ${source} does not hold the pinned revision.`
+    )
   }
+}
+
+/**
+ * The source of a clone.
+ *
+ * A repository that is a path on the disk is used as it is: the clone of
+ * a local path does not use the network. When the path is not there, the
+ * mirror of the harness is used, if it holds the repository. The url is
+ * the last resort.
+ */
+function sourceOf(repository: string): string {
+  if (existsSync(repository)) return repository
+  if (COMPAT_MIRROR) {
+    const name = repository.split('/').pop() ?? ''
+    const mirror = join(COMPAT_MIRROR, `${name}.git`)
+    if (existsSync(mirror)) return mirror
+  }
+  return repository
 }
 
 /** Installs the dependencies of a checkout. */

@@ -1,0 +1,12 @@
+node_modules
+dist
+.git
+.gitignore
+*.log
+coverage
+test
+packages/client/dist
+.pg
+.env
+.env.local
+*.md

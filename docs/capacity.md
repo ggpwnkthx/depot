@@ -50,10 +50,10 @@ numbers of a development machine, and a deployment measures its own.
 
 | Scenario | The requests | The rate | p50 | p95 | p99 | The failures |
 | --- | --- | --- | --- | --- | --- | --- |
-| Read heavy, a page of 50 | 15155 | 1516/s | 10.4 ms | 13.0 ms | 15.0 ms | 0 |
-| Mixed, half of the creations | 19574 | 1957/s | 5.9 ms | 21.4 ms | 27.4 ms | 0 |
-| The concurrent updates of one record | 2831 | 283/s | 56.4 ms | 62.6 ms | 65.7 ms | 0 (194 successes, 2637 precondition failures) |
-| The hub is down | 72041 | 7204/s | 2.1 ms | 2.8 ms | 4.2 ms | 72041 answers 503 |
+| Read heavy, a page of 50 | 14375 | 1438/s | 10.8 ms | 14.7 ms | 18.8 ms | 0 |
+| Mixed, half of the creations | 18692 | 1869/s | 6.3 ms | 21.4 ms | 27.1 ms | 0 |
+| The concurrent updates of one record | 2898 | 290/s | 54.6 ms | 66.0 ms | 75.9 ms | 0 (265 successes, 2633 precondition failures) |
+| The hub is down | 70163 | 7016/s | 2.2 ms | 3.0 ms | 4.3 ms | 70163 answers 503 |
 
 What the numbers say:
 

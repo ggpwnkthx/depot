@@ -161,3 +161,36 @@ server of their own.
 the behaviour of a server. An embedded engine proves the rules of the
 domain and nothing else, and the specification asks for the server level
 checks.
+
+## 15. The null of a comparison follows the database
+
+The predicate of a policy is compiled to SQL for the reads and it is
+evaluated in memory for the writes. The two evaluations use the three
+valued logic of the database: a comparison with a null value is unknown
+and it never matches, and only `_is_null` matches a null value.
+
+**Why.** The two evaluations answer the same question about the same
+row, and they have to answer it the same way. A policy that reads the
+records whose body differs from a value does not cover a record whose
+body is null, exactly as the statement of the read does not match it.
+The evaluation in memory that treated the null as a value would let a
+caller write a record that the read hides, and the two rules of the
+service would contradict each other inside the same request.
+
+The two evaluations are compared by a differential test: the same
+predicates run against the same rows, in memory and in the server, and
+the two answers have to be the same. The test is the proof that a change
+of one of the two engines does not change the meaning of a policy.
+
+## 16. The metrics of the dependency and of the cache are recorded by the component that owns them
+
+The client of the hub records the calls it makes and their duration, the
+resolver records the hits and the misses of the cache of the context, the
+pool records the waits for a connection and the store records the rolled
+back transactions.
+
+**Why.** A metric that the component that knows the event does not
+record is a metric that drifts from the truth. The specification asks
+for the duration of the hub, for the hits of the cache and for the
+rollbacks, and the component that holds the event is the only one that
+can count it without a guess.

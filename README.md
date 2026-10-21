@@ -47,10 +47,25 @@ deployment on every record.
 | `bun test test/integration` | The database, the transactions and the worker. |
 | `bun test packages/client/test` | The consumer of the typed client. |
 | `bun run test:compat` | The real gateway, the real hub and the real backend. |
+| `docker build .` | The image of the service. |
+| `docker compose up --build` | The stack of the development machine. |
 
 The integration tests and the compatibility harness need a PostgreSQL
 server. The tests start one themselves in `.pg/test-data`; the harness
 starts one in a temporary directory.
+
+The harness clones the gateway and the hub at their pinned revisions. It
+takes them from the network when it can, and it takes them from local
+checkouts when it cannot:
+
+```bash
+SHUTTLE_REPOSITORY=/srv/mirrors/shuttle HUB_REPOSITORY=/srv/mirrors/hub bun run test:compat
+```
+
+A repository that is a path on the disk is cloned from that path, and
+the clone of a local path does not use the network. `COMPAT_MIRROR`
+names a directory that holds the bare mirrors `shuttle.git` and `hub.git`,
+and the harness uses them when the network is not there.
 
 ## The development machine
 

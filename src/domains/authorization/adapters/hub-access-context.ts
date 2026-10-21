@@ -8,6 +8,7 @@
  */
 
 import { ServiceError } from '../../../protocol/errors'
+import type { Metrics } from '../../../observability/metrics'
 import {
   type AccessContext,
   type AccessContextClient,
@@ -26,6 +27,8 @@ export interface HubClientOptions {
   readonly timeoutMs: number
   /** The transport of the runtime. */
   readonly fetch?: typeof globalThis.fetch
+  /** The metrics of the process. */
+  readonly metrics?: Metrics
 }
 
 /** The failure of the dependency. */
@@ -79,6 +82,7 @@ export class HubAccessContextClient implements AccessContextClient {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), this.#options.timeoutMs)
     timer.unref?.()
+    const started = performance.now()
     try {
       const response = await this.#fetch(`${this.#options.baseUrl}${path}`, {
         method,
@@ -90,12 +94,29 @@ export class HubAccessContextClient implements AccessContextClient {
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         signal: controller.signal,
       })
+      this.#record(method, path, started, response.ok ? 'ok' : 'refused')
       return response
     } catch (error) {
+      this.#record(method, path, started, 'failed')
       unavailable(error instanceof Error ? error.message : 'the request failed')
     } finally {
       clearTimeout(timer)
     }
+  }
+
+  /**
+   * Records a request to the hub.
+   *
+   * The labels are bounded: the method and the path of the contract, and
+   * the outcome of the request. The tenant, the principal and the
+   * workspace of the context never become a label.
+   */
+  #record(method: string, path: string, started: number, outcome: string): void {
+    const metrics = this.#options.metrics
+    if (!metrics) return
+    const labels = { method, path, outcome }
+    metrics.increment('data_hub_requests_total', labels)
+    metrics.observe('data_hub_duration_ms', performance.now() - started, labels)
   }
 
   /** Reads the body of an answer, with its budget. */

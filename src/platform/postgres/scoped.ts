@@ -14,6 +14,7 @@
 
 import type { PoolClient } from 'pg'
 import { ServiceError } from '../../protocol/errors'
+import type { Metrics } from '../../observability/metrics'
 import type { DataStore, Scope, TransactionOptions, UnitOfWork } from '../../domains/records'
 import { type ConnectionPool, DatabaseError, codeOf } from './database'
 
@@ -71,14 +72,16 @@ export class PostgresDataStore implements DataStore {
   readonly #pool: ConnectionPool
   readonly #statementTimeoutMs: number
   readonly #transactionTimeoutMs: number
+  readonly #metrics?: Metrics
 
   constructor(
     pool: ConnectionPool,
-    options: { statementTimeoutMs: number; transactionTimeoutMs: number }
+    options: { statementTimeoutMs: number; transactionTimeoutMs: number; metrics?: Metrics }
   ) {
     this.#pool = pool
     this.#statementTimeoutMs = options.statementTimeoutMs
     this.#transactionTimeoutMs = options.transactionTimeoutMs
+    this.#metrics = options.metrics
   }
 
   /** Runs a read inside a scoped, read only transaction. */
@@ -157,6 +160,7 @@ export class PostgresDataStore implements DataStore {
     } catch (error) {
       try {
         await client.query('rollback')
+        this.#metrics?.increment('data_transaction_rollbacks_total')
       } catch {
         broken = true
       }

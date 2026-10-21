@@ -26,6 +26,7 @@ interface Sample {
   value: number
   count?: number
   sum?: number
+  /** The cumulative count of the observations of every bucket. */
   buckets?: number[]
 }
 
@@ -76,6 +77,20 @@ export class Metrics {
     const sample = this.#sample(name, labels)
     sample.count = (sample.count ?? 0) + 1
     sample.sum = (sample.sum ?? 0) + value
+    // The buckets are cumulative: an observation belongs to every bucket
+    // whose bound is greater than or equal to its value, and to none of
+    // the others. The count of a bucket is the count of the observations
+    // that are less than or equal to its bound.
+    const bounds = this.#definitions.get(name)?.buckets ?? DEFAULT_BUCKETS
+    const buckets = sample.buckets ?? new Array<number>(bounds.length).fill(0)
+    if (buckets.length !== bounds.length) {
+      buckets.length = bounds.length
+      buckets.fill(0)
+    }
+    sample.buckets = buckets
+    for (let index = 0; index < bounds.length; index += 1) {
+      if (value <= (bounds[index] as number)) buckets[index] = (buckets[index] ?? 0) + 1
+    }
   }
 
   /** Renders the metrics in the Prometheus text format. */
@@ -92,11 +107,11 @@ export class Metrics {
         if (definition.kind === 'histogram') {
           const buckets = definition.buckets ?? DEFAULT_BUCKETS
           const observations = sample.count ?? 0
-          let cumulative = 0
-          for (const bucket of buckets) {
-            cumulative += 0
+          for (let index = 0; index < buckets.length; index += 1) {
             lines.push(
-              `${this.#key(definition.name, sample.labels)}_bucket{le="${bucket}"} ${cumulative}`
+              `${this.#key(definition.name, sample.labels)}_bucket{le="${buckets[index]}"} ${
+                sample.buckets?.[index] ?? 0
+              }`
             )
           }
           lines.push(

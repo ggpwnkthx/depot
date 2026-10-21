@@ -1,0 +1,83 @@
+# The stack of the development machine.
+#
+# It starts the database, it provisions the roles of the separation, it
+# applies the migrations and it runs the service. The gateway and the hub
+# are external services: their urls and their credentials come from the
+# environment, and the compatibility harness is what runs the three of
+# them together:
+#
+#   bun run test:compat
+#
+# The passwords of this file are the passwords of a development machine.
+# They are not secrets, and they are not the passwords of a deployment:
+# a deployment mounts the credentials of its secret manager.
+
+name: depot
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: depot
+      POSTGRES_PASSWORD: depot
+      POSTGRES_DB: postgres
+    ports:
+      - '5432:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U depot']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+
+  # The roles of the separation and the schema. The service waits for
+  # them: it refuses to start against a database that is not migrated.
+  migrate:
+    build:
+      context: .
+    command: ['sh', '-c', 'bun run scripts/provision.ts && bun run scripts/migrate.ts']
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATA_ADMIN_DATABASE_URL: postgres://depot:depot@postgres:5432/postgres
+      DATA_OWNER_DATABASE_URL: postgres://depot:depot@postgres:5432/depot
+      DATA_OWNER_PASSWORD: dev-owner-password-0001
+      DATA_RUNTIME_PASSWORD: dev-runtime-password-0001
+      DATA_REGISTRY_PASSWORD: dev-registry-password-0001
+      DATA_DELIVERY_PASSWORD: dev-delivery-password-0001
+      DATA_MAINTENANCE_PASSWORD: dev-maintenance-password-0001
+
+  depot:
+    build:
+      context: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - '8082:8082'
+    environment:
+      DATA_ENVIRONMENT: development
+      DATA_HOST: 0.0.0.0
+      DATA_PORT: '8082'
+      # The api serves the requests. The worker claims the deliveries of
+      # the events, and it needs a principal that the hub knows:
+      # DATA_PROCESS_ROLE=all DATA_WORKER_PRINCIPAL_ID=<uuid> DATA_WORKER_ROUTE_ID=data-worker
+      DATA_PROCESS_ROLE: api
+      DATA_DATABASE_URL: postgres://data_runtime:dev-runtime-password-0001@postgres:5432/depot
+      DATA_REGISTRY_DATABASE_URL: postgres://data_registry:dev-registry-password-0001@postgres:5432/depot
+      DATA_SCHEMA_BUNDLE_FILE: /app/manifests/schema.json
+      DATA_POLICY_BUNDLE_FILE: /app/manifests/policies.json
+      DATA_SHUTTLE_BINDINGS_FILE: /etc/depot/bindings.json
+      DATA_HUB_URL: ${DATA_HUB_URL:-http://host.docker.internal:8081}
+      DATA_HUB_CONTEXT_TOKEN_FILE: /run/secrets/hub-context.token
+      DATA_CURSOR_KEY_FILE: /run/secrets/cursor.key
+    volumes:
+      - ./deploy/bindings.json:/etc/depot/bindings.json:ro
+      - ./deploy/secrets:/run/secrets:ro
+
+volumes:
+  pg-data:

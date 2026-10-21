@@ -8,6 +8,7 @@
  */
 
 import { Pool, type PoolClient, type PoolConfig, type QueryResultRow } from 'pg'
+import type { Metrics } from '../../observability/metrics'
 
 /** The problem of a database that cannot be used. */
 export class DatabaseError extends Error {
@@ -31,15 +32,19 @@ export interface PoolSettings {
   readonly acquireTimeoutMs: number
   /** The application name of the connections. */
   readonly applicationName: string
+  /** The metrics of the process. */
+  readonly metrics?: Metrics
 }
 
 /** A pool of connections. */
 export class ConnectionPool {
   readonly #pool: Pool
   readonly #settings: PoolSettings
+  readonly #metrics?: Metrics
 
   constructor(settings: PoolSettings) {
     this.#settings = settings
+    this.#metrics = settings.metrics
     const config: PoolConfig = {
       connectionString: settings.url,
       max: settings.max,
@@ -58,8 +63,20 @@ export class ConnectionPool {
 
   /** Takes a connection from the pool. */
   async acquire(): Promise<PoolClient> {
+    const started = performance.now()
+    const waited = this.#pool.waitingCount
     try {
-      return await this.#pool.connect()
+      const client = await this.#pool.connect()
+      const duration = performance.now() - started
+      if (this.#metrics) {
+        // The wait is a wait of the pool: the requests that waited are
+        // the ones that found every connection busy.
+        if (waited > 0) {
+          this.#metrics.increment('data_db_pool_waits_total')
+        }
+        this.#metrics.observe('data_db_acquire_duration_ms', duration)
+      }
+      return client
     } catch (error) {
       throw new DatabaseError('the database is not available', codeOf(error))
     }
