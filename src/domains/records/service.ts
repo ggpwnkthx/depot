@@ -80,6 +80,7 @@ import {
   keysetCondition,
   rowPredicate,
   searchClause,
+  orderBy,
   sortColumns,
 } from './sql'
 
@@ -307,7 +308,6 @@ export class RecordsService {
         relations: include,
         sort,
         limit: limit + 1,
-        withLimit: true,
       })
 
       const raw = await unit.query<Record<string, unknown>>(sql, parameters.values)
@@ -583,7 +583,6 @@ export class RecordsService {
         relations: [],
         sort: [],
         limit: 1,
-        withLimit: false,
       })
       const row = await unit.queryOne<Record<string, unknown>>(sql, parameters.values)
       if (!row) {
@@ -1288,7 +1287,6 @@ export class RecordsService {
       relations: [],
       sort: [{ field: 'id', descending: false }],
       limit: MAX_RELATED_ROWS_PER_RESPONSE + 1,
-      withLimit: true,
     })
     const raw = await unit.query<Record<string, unknown>>(sql, parameters.values)
     const rows = raw.map((row) => mapRow(row, [{ field: 'id', descending: false }], [field]))
@@ -1326,16 +1324,26 @@ interface SelectOptions {
   relations: readonly string[]
   sort: readonly SortColumn[]
   limit: number
-  withLimit: boolean
 }
 
 /**
  * Builds the statement of a read.
  *
- * The statement computes, for every policy, whether the policy matches
- * the row. The payload of the row is built from those flags: a field is
- * added only when a policy that matched the row grants it, so a value
- * the caller may not see never leaves the database.
+ * The statement has two parts. The first one reads the page: the
+ * identifiers of the rows, the order and the limit. The second one
+ * builds the payload of the rows of the page.
+ *
+ * The two parts are separate because the projection of a row is the
+ * expensive part of a read: it reads every field of a row and it
+ * builds a json value for each of them. A statement that projected
+ * every row of the scope and then kept the page would cost a page what
+ * the whole scope costs, and the collection would grow with the number
+ * of the rows that were never read.
+ *
+ * The second part computes, for every policy, whether the policy
+ * matches the row. The payload of the row is built from those flags: a
+ * field is added only when a policy that matched the row grants it, so
+ * a value the caller may not see never leaves the database.
  */
 function buildSelect(options: SelectOptions): string {
   const { parameters, policies, catalogue, substitutions } = options
@@ -1398,16 +1406,26 @@ function buildSelect(options: SelectOptions): string {
   const where =
     policies.length === 0 ? 'false' : `(${policies.map((_p, index) => `m${index}`).join(' or ')})`
 
-  return `with base as (
-  select
-    ${parts.join(',\n    ')}
+  // The page: the identifiers of the rows, the order and the limit. The
+  // predicate of the policies is here, so the page holds the rows that
+  // a policy covers and no other.
+  const innerOrder = options.sort.length === 0 ? '' : `order by ${orderBy(options.sort)}\n  `
+
+  return `with page as (
+  select t."id" as id
   from ${options.table} t
   where ${options.scopeClause} and (${options.predicate}) and (${options.filterClause}) and (${options.keyset})
+  ${innerOrder}limit ${options.limit}
+), rows as (
+  select
+    ${parts.join(',\n    ')}
+  from page p
+  join ${options.table} t on t."id" = p.id and (${options.scopeClause})
 )
 select ${selected.join(', ')}, (${payload}) as payload, (${relations}) as relations
-from base
+from rows
 where ${where}
-${outerOrder}${options.withLimit ? `\nlimit ${options.limit}` : ''}`
+${outerOrder}`
 }
 
 /**

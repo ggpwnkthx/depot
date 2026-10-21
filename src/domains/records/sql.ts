@@ -125,11 +125,25 @@ export interface SortColumn {
  * position of a page is a tuple of comparable values: the nulls are the
  * last ones in both directions.
  */
+/**
+ * The order of a page, in the form of the database.
+ *
+ * The order of the service is the order of the nulls last, in the two
+ * directions. The database writes it as `col asc nulls last`, and the
+ * order it writes is the order of an index: a deployment that declares
+ * an index on the field of the sort sees the database read the page
+ * with that index and without a sort.
+ *
+ * The form of the service, `((col is null))::int asc, col asc`, is the
+ * same order — the nulls are last in the two forms — but the database
+ * does not recognise it as the order of an index, and it reads the
+ * whole scope and sorts it for every page.
+ */
 export function orderBy(columns: readonly SortColumn[], alias = 't'): string {
   return columns
     .map(
-      (column, _index) =>
-        `(${quoteIdentifier(alias)}.${quoteIdentifier(column.field)} is null)::int asc, ${quoteIdentifier(alias)}.${quoteIdentifier(column.field)} ${column.descending ? 'desc' : 'asc'}`
+      (column) =>
+        `${quoteIdentifier(alias)}.${quoteIdentifier(column.field)} ${column.descending ? 'desc' : 'asc'} nulls last`
     )
     .join(', ')
 }
@@ -150,6 +164,11 @@ export function sortColumns(columns: readonly SortColumn[], alias = 't'): string
  * The comparison is a tuple comparison, written out: the values of the
  * columns are compared one after the other, and the first difference
  * decides.
+ *
+ * The equality of a value is the prefix of the column that follows it,
+ * and it is bound only when there is a column that follows it: a
+ * parameter that the statement does not reference is refused by the
+ * database, and the second page of every collection would fail.
  */
 export function keysetCondition(
   columns: readonly SortColumn[],
@@ -167,14 +186,15 @@ export function keysetCondition(
     const rank = `(${reference} is null)::int`
     const sameRank = `${rank} = ${parameters.add(nullRank)}`
     const greaterRank = `${rank} > ${parameters.add(nullRank)}`
-    const sameValue = `${reference} is not distinct from ${parameters.add(value)}`
     const comparison =
       value === null || value === undefined
         ? 'false'
         : `${reference} ${column.descending ? '<' : '>'} ${parameters.add(value)}`
     const prefix = equalities.length === 0 ? '' : `${equalities.join(' and ')} and `
     parts.push(`(${prefix}(${greaterRank} or (${sameRank} and ${comparison})))`)
-    equalities.push(`${sameRank}`, `${sameValue}`)
+    if (index + 1 < columns.length) {
+      equalities.push(`${sameRank}`, `${reference} is not distinct from ${parameters.add(value)}`)
+    }
   }
   if (parts.length === 0) return 'false'
   return `(${parts.join(' or ')})`

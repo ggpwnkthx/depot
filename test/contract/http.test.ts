@@ -374,6 +374,72 @@ describe('the records', () => {
   })
 })
 
+describe('the pagination of a list', () => {
+  /**
+   * Walks every page of a list and returns the rows and the number of
+   * the pages.
+   *
+   * The cursor is bound to the query that produced it: the pages of a
+   * walk are the same query with the cursor of the last page.
+   */
+  async function walk(query: string): Promise<{ rows: string[]; pages: number }> {
+    const rows: string[] = []
+    let pages = 0
+    let cursor: string | undefined
+    do {
+      const url = `/ws/${WORKSPACE_ID}/v1/items/articles?${query}${
+        cursor === undefined ? '' : `&cursor=${encodeURIComponent(cursor)}`
+      }`
+      const response = await harness.request(url)
+      expect(response.status).toBe(200)
+      const body = await json(response)
+      for (const row of body.data as { id: string }[]) rows.push(row.id)
+      cursor = body.meta.nextCursor ?? undefined
+      pages += 1
+    } while (cursor !== undefined && pages < 100)
+    return { rows, pages }
+  }
+
+  test('the pages cover every record of the collection exactly once', async () => {
+    const first = await harness.request(
+      `/ws/${WORKSPACE_ID}/v1/items/articles?limit=2&include_count=true`
+    )
+    expect(first.status).toBe(200)
+    const firstBody = await json(first)
+    const expected = firstBody.meta.count as number
+
+    const walked = await walk('limit=2&include_count=true')
+    expect(walked.rows.length).toBe(expected)
+    expect(new Set(walked.rows).size).toBe(expected)
+  })
+
+  test('the pages of a descending sort cover the collection too', async () => {
+    const first = await harness.request(
+      `/ws/${WORKSPACE_ID}/v1/items/articles?limit=2&include_count=true&sort=-title`
+    )
+    expect(first.status).toBe(200)
+    const firstBody = await json(first)
+    const expected = firstBody.meta.count as number
+
+    const walked = await walk('limit=2&include_count=true&sort=-title')
+    expect(walked.rows.length).toBe(expected)
+    expect(new Set(walked.rows).size).toBe(expected)
+  })
+
+  test('the pages of a sort of two fields cover the collection too', async () => {
+    const first = await harness.request(
+      `/ws/${WORKSPACE_ID}/v1/items/articles?limit=2&include_count=true&sort=status,title`
+    )
+    expect(first.status).toBe(200)
+    const firstBody = await json(first)
+    const expected = firstBody.meta.count as number
+
+    const walked = await walk('limit=2&include_count=true&sort=status,title')
+    expect(walked.rows.length).toBe(expected)
+    expect(new Set(walked.rows).size).toBe(expected)
+  })
+})
+
 describe('the deferred capabilities', () => {
   const deferred = [
     '/ws/{workspaceId}/v1/items/articles/export',
