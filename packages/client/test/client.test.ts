@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { ApiError, DataClient } from '../src/index'
+import type { Collections } from '../src/deployment'
 
 /**
  * A stand in for the deployment.
@@ -139,6 +140,13 @@ const client = new DataClient({
   headers: { cookie: 'shuttle_session=the-session-of-the-caller' },
 })
 
+/** The client of a deployment that declares its collections. */
+const typed = new DataClient<Collections>({
+  baseUrl: `http://127.0.0.1:${server.port}`,
+  workspaceId: '33333333-3333-4333-8333-333333333333',
+  headers: { cookie: 'shuttle_session=the-session-of-the-caller' },
+})
+
 describe('the client of the api', () => {
   test('it reads the identity of the caller', async () => {
     const me = await client.me()
@@ -244,5 +252,41 @@ describe('the client of the api', () => {
     expect((error as ApiError).code).toBe('NOT_FOUND')
     expect((error as ApiError).status).toBe(404)
     expect((error as ApiError).requestId).toBe('request-1')
+  })
+})
+
+describe('the types of the collections of a deployment', () => {
+  test('the rows of a collection are the rows of the deployment', async () => {
+    const page = await typed.list('articles')
+    const row = page.data[0]
+    // The types are the types of the manifest: the title is a string and
+    // the version is a number. The check below is a check of the types
+    // as much as a check of the answer.
+    const title: string = row!.title
+    const version: number = row!.version
+    expect(title).toBe('One')
+    expect(version).toBe(1)
+  })
+
+  test('the client of a deployment that declares nothing answers with the contract', async () => {
+    const page = await client.list('articles')
+    const row = page.data[0]
+    const id: string = row!.id
+    expect(id).toBe('1')
+  })
+
+  test('the map of the deployment holds every collection of the manifest', () => {
+    const map: Collections = {
+      articles: { id: '1', version: 1, title: 'One' },
+      categories: { id: '2', version: 1, name: 'News' },
+      article_stats: {
+        id: '3',
+        version: 1,
+        article_id: '1',
+        word_count: 12,
+        event_id: '4',
+      },
+    }
+    expect(Object.keys(map)).toHaveLength(3)
   })
 })

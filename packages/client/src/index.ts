@@ -58,6 +58,23 @@ export interface ClientOptions {
 /** A record of a collection. */
 export type RecordValue = Record<string, unknown> & { id: string; version: number }
 
+/**
+ * The map of the collections of a deployment.
+ *
+ * The map is the type of the rows of every collection of a deployment:
+ * the client reads the map as a type parameter, and the rows of a
+ * collection are the rows of the map. A deployment that wants the types
+ * of its own collections generates them with
+ * `bun run scripts/generate-client.ts` and hands them to the client:
+ *
+ *   const client = new DataClient<Collections>({ baseUrl, workspaceId })
+ *   const page = await client.list('articles')
+ *
+ * The client without a map is the client of the contract of v1: its rows
+ * are `RecordValue`.
+ */
+export type CollectionMap = Record<string, unknown>
+
 /** The options of a list. */
 export interface ListOptions {
   /** The fields of the projection. */
@@ -137,8 +154,15 @@ export interface Receipt {
   version: number
 }
 
-/** The client of the API. */
-export class DataClient {
+/**
+ * The client of the API.
+ *
+ * The map of the collections is a type parameter: the client of a
+ * deployment that declares its collections answers with the rows of
+ * those collections, and the client of a deployment that declares
+ * nothing answers with the rows of the contract.
+ */
+export class DataClient<M extends CollectionMap = Record<string, RecordValue>> {
   readonly #options: ClientOptions
 
   constructor(options: ClientOptions) {
@@ -232,10 +256,10 @@ export class DataClient {
   }
 
   /** A page of a collection. */
-  async list<T = RecordValue>(
-    key: string,
+  async list<K extends keyof M & string>(
+    key: K,
     options: ListOptions & { cursor?: string } = {}
-  ): Promise<Page<T>> {
+  ): Promise<Page<M[K]>> {
     const query = new URLSearchParams()
     if (options.fields) query.set('fields', options.fields.join(','))
     if (options.filter !== undefined) query.set('filter', JSON.stringify(options.filter))
@@ -246,7 +270,7 @@ export class DataClient {
     if (options.include) query.set('include', options.include.join(','))
     if (options.includeCount) query.set('include_count', 'true')
     const suffix = query.toString()
-    const answer = await this.#call<{ data: T[]; meta: Page<T>['meta'] }>(
+    const answer = await this.#call<{ data: M[K][]; meta: Page<M[K]>['meta'] }>(
       `/items/${key}${suffix ? `?${suffix}` : ''}`
     )
     return { data: answer.body.data, meta: answer.body.meta }
@@ -258,13 +282,13 @@ export class DataClient {
    * The pages are read one after the other with the cursor of the
    * previous one: the traversal is bounded by the caller, which stops it.
    */
-  async *listAll<T = RecordValue>(
-    key: string,
+  async *listAll<K extends keyof M & string>(
+    key: K,
     options: ListOptions = {}
-  ): AsyncGenerator<T[], void, void> {
+  ): AsyncGenerator<M[K][], void, void> {
     let cursor: string | undefined
     do {
-      const page = await this.list<T>(key, { ...options, ...(cursor ? { cursor } : {}) })
+      const page = await this.list(key, { ...options, ...(cursor ? { cursor } : {}) })
       yield page.data
       cursor = page.meta.nextCursor ?? undefined
     } while (cursor)
@@ -291,17 +315,17 @@ export class DataClient {
   }
 
   /** One record. */
-  async get<T = RecordValue>(key: string, id: string): Promise<T> {
-    const answer = await this.#call<{ data: T }>(`/items/${key}/${id}`)
+  async get<K extends keyof M & string>(key: K, id: string): Promise<M[K]> {
+    const answer = await this.#call<{ data: M[K] }>(`/items/${key}/${id}`)
     return answer.body.data
   }
 
   /** The validator of a record. */
-  async getWithValidator<T = RecordValue>(
-    key: string,
+  async getWithValidator<K extends keyof M & string>(
+    key: K,
     id: string
-  ): Promise<{ record: T; etag: string }> {
-    const answer = await this.#call<{ data: T }>(`/items/${key}/${id}`)
+  ): Promise<{ record: M[K]; etag: string }> {
+    const answer = await this.#call<{ data: M[K] }>(`/items/${key}/${id}`)
     const etag = answer.headers.get('etag')
     if (!etag) {
       throw new ApiError({
@@ -315,9 +339,9 @@ export class DataClient {
   }
 
   /** Creates a record. */
-  async create(
-    key: string,
-    body: Record<string, unknown>,
+  async create<K extends keyof M & string>(
+    key: K,
+    body: Partial<M[K]> & Record<string, unknown>,
     options: { idempotencyKey: string }
   ): Promise<Receipt> {
     const answer = await this.#call<{ data: Receipt }>(`/items/${key}`, {
@@ -329,13 +353,13 @@ export class DataClient {
   }
 
   /** Updates a record. */
-  async update(
-    key: string,
+  async update<K extends keyof M & string>(
+    key: K,
     id: string,
-    body: Record<string, unknown>,
+    body: Partial<M[K]> & Record<string, unknown>,
     options: { etag: string }
-  ): Promise<{ record: RecordValue; etag: string }> {
-    const answer = await this.#call<{ data: RecordValue }>(`/items/${key}/${id}`, {
+  ): Promise<{ record: M[K]; etag: string }> {
+    const answer = await this.#call<{ data: M[K] }>(`/items/${key}/${id}`, {
       method: 'PATCH',
       body,
       headers: { 'if-match': options.etag },
@@ -345,7 +369,11 @@ export class DataClient {
   }
 
   /** Deletes a record. */
-  async remove(key: string, id: string, options: { etag: string }): Promise<void> {
+  async remove<K extends keyof M & string>(
+    key: K,
+    id: string,
+    options: { etag: string }
+  ): Promise<void> {
     await this.#call(`/items/${key}/${id}`, {
       method: 'DELETE',
       headers: { 'if-match': options.etag },

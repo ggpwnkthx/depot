@@ -33,6 +33,8 @@ jobs:
         run: bun audit
       - name: the types
         run: bun run typecheck
+      - name: the types of the client are the ones of the manifest
+        run: bun run scripts/generate-client.ts --check
       - name: the style
         run: |
           bun run lint

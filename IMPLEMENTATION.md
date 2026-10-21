@@ -122,6 +122,7 @@ one of them has to be green before a release.
 | The requirement | The implementation | The check | The command | The status |
 | --- | --- | --- | --- | --- |
 | The client uses the API through the gateway and it hides nothing (§12) | `packages/client/src/index.ts` | `packages/client/test/client.test.ts` | `bun test packages/client/test` | checked |
+| The types of the collections of a deployment are the types of its manifest (§12) | `scripts/generate-client.ts`, `packages/client/src/deployment.ts` | `packages/client/test/client.test.ts`, the check of the generated file | `bun run scripts/generate-client.ts --check` | checked |
 | The image of the service holds the artifacts and it starts (§15) | `Dockerfile`, `docker-compose.yml` | the job of the image of the continuous integration | `docker build .` | checked |
 | The description of the API is published (§12) | `src/app/openapi.ts` | `test/contract/http.test.ts` | `bun test test/contract` | checked |
 | The imports follow the matrix and there is no cycle (§13) | `scripts/architecture.ts` | `test/architecture/architecture.test.ts` | `bun run architecture` | checked |

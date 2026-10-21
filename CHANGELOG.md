@@ -59,6 +59,13 @@ found, and they do not change the contract of v1.
   a million rows, it measures the plan of the statement of a page, and
   it walks every page of the collection and compares the rows with the
   rows of one statement.
+- **The types of the collections of a deployment.** The command
+  `bun run scripts/generate-client.ts` writes the types of the manifest
+  of the deployment, and the client reads them as a type parameter:
+  `new DataClient<Collections>({ … })`. The client without a map is the
+  client of the contract of v1, and the names of the collections are
+  not a part of the client package: they change with the manifest of
+  the deployment.
 
 ### Changed
 

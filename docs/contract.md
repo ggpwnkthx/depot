@@ -93,6 +93,26 @@ version. The client of `1.x` talks to the deployment of `1.y` for every
 `y >= x`: the deployment never removes a path and never changes the
 meaning of an answer inside a major version.
 
+**The types of the collections are the artifact of the deployment.** The
+client is generic: it speaks the contract of v1 and it knows nothing of
+the collections of a deployment. A deployment that wants the types of
+its own collections generates them with
+`bun run scripts/generate-client.ts` and hands them to the client:
+
+```ts
+import { DataClient } from '@data-backend/client'
+import type { Collections } from './generated/collections'
+
+const client = new DataClient<Collections>({ baseUrl, workspaceId })
+const page = await client.list('articles')   // the rows of the articles
+```
+
+The client without a map is the client of the contract: its rows are
+`RecordValue`, and every collection is a string. The names of the
+collections and the types of their fields are not part of the client
+package: they change with the manifest of the deployment, and the
+manifest is not a part of a major version of the client.
+
 ## What is not stable
 
 - **The deployment artifacts.** The manifest of the collections, the

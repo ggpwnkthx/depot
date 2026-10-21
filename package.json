@@ -30,6 +30,7 @@
     "test:architecture": "bun test test/architecture",
     "capacity": "bun run scripts/capacity.ts",
     "scale": "bun run scripts/scale.ts",
+    "generate:client": "bun run scripts/generate-client.ts",
     "retention": "bun run scripts/retention.ts",
     "provision": "bun run scripts/provision.ts",
     "fixtures": "bun run scripts/generate-fixtures.ts",
