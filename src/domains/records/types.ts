@@ -75,10 +75,69 @@ export interface ListResult {
   }
 }
 
+/** The functions of an aggregate. */
+export const AGGREGATE_FUNCTIONS = ['sum', 'avg', 'min', 'max'] as const
+
+/** The function of an aggregate. */
+export type AggregateFunction = (typeof AGGREGATE_FUNCTIONS)[number]
+
+/** One metric of an aggregate. */
+export interface AggregateMetric {
+  /** The function of the metric. */
+  readonly function: AggregateFunction
+  /** The field the metric reads. */
+  readonly field: string
+}
+
+/** The options of an aggregate. */
+export interface AggregateOptions {
+  /** The fields the rows are grouped by. */
+  readonly groupBy: readonly string[]
+  /** The metrics of every group. */
+  readonly metrics: readonly AggregateMetric[]
+  /** The filter of the caller. */
+  readonly filter?: unknown
+  /** The text of the search of the collection. */
+  readonly search?: string
+  /** The maximum number of groups. */
+  readonly limit: number
+}
+
+/** One group of an aggregate. */
+export interface AggregateGroup {
+  /** The values of the fields of the group. */
+  readonly group: Record<string, unknown>
+  /** The number of the rows of the group. */
+  readonly count: number
+  /** The sums of the fields, when a sum was asked. A sum of no row is null. */
+  readonly sum?: Record<string, string | null>
+  /** The averages of the fields, when an average was asked. */
+  readonly avg?: Record<string, string | null>
+  /** The smallest values of the fields, when a minimum was asked. */
+  readonly min?: Record<string, unknown>
+  /** The largest values of the fields, when a maximum was asked. */
+  readonly max?: Record<string, unknown>
+}
+
+/** The result of an aggregate. */
+export interface AggregateResult {
+  readonly data: readonly AggregateGroup[]
+  readonly meta: {
+    /** The maximum number of groups that were asked. */
+    readonly limit: number
+    /** The number of the groups of the answer. */
+    readonly groups: number
+    /** True when the groups of the answer are not all of them. */
+    readonly truncated: boolean
+  }
+}
+
 /** The options of a list. */
 export interface ListOptions {
   readonly fields?: readonly string[]
   readonly filter?: unknown
+  /** The text of the search of the collection. */
+  readonly search?: string
   readonly sort?: readonly string[]
   readonly limit: number
   readonly cursor?: string
@@ -210,6 +269,21 @@ export const MAX_RELATED_ROWS_PER_RESPONSE = 1000
 
 /** The maximum size of a response, in bytes. */
 export const MAX_RESPONSE_BYTES = 4 * 1024 * 1024
+
+/** The maximum number of the groups of an aggregate. */
+export const MAX_AGGREGATE_GROUPS = 1000
+
+/** The maximum number of the fields of the group of an aggregate. */
+export const MAX_AGGREGATE_GROUP_FIELDS = 3
+
+/** The maximum number of the metrics of an aggregate. */
+export const MAX_AGGREGATE_METRICS = 10
+
+/** The maximum length of the text of a search. */
+export const MAX_SEARCH_LENGTH = 256
+
+/** The default number of the groups of an aggregate. */
+export const DEFAULT_AGGREGATE_GROUPS = 100
 
 /** The maximum depth of an expansion. */
 export const MAX_EXPANSION_DEPTH = 1

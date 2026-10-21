@@ -51,10 +51,10 @@ numbers of a development machine, and a deployment measures its own.
 
 | Scenario | The requests | The rate | p50 | p95 | p99 | The failures |
 | --- | --- | --- | --- | --- | --- | --- |
-| Read heavy, a page of 50 | 10368 | 1037/s | 15.2 ms | 19.8 ms | 22.9 ms | 0 |
-| Mixed, half of the creations | 12888 | 1289/s | 11.1 ms | 23.4 ms | 27.4 ms | 0 |
-| The concurrent updates of one record | 3067 | 307/s | 51.8 ms | 62.4 ms | 73.5 ms | 0 (344 successes, 2723 precondition failures) |
-| The hub is down | 45216 | 4522/s | 3.4 ms | 5.0 ms | 7.2 ms | 45216 answers 503 |
+| Read heavy, a page of 50 | 9912 | 991/s | 15.8 ms | 21.0 ms | 24.3 ms | 0 |
+| Mixed, half of the creations | 12511 | 1251/s | 11.6 ms | 23.7 ms | 28.1 ms | 0 |
+| The concurrent updates of one record | 3126 | 313/s | 50.8 ms | 62.2 ms | 69.0 ms | 0 (357 successes, 2769 precondition failures) |
+| The hub is down | 42801 | 4280/s | 3.6 ms | 5.3 ms | 7.6 ms | 42801 answers 503 |
 
 The numbers of the same machine, measured on the revision that reads
 the catalog of the workspace, are lower than the ones of the previous

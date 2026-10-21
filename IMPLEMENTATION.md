@@ -64,6 +64,12 @@ one of them has to be green before a release.
 | The catalog is memoized with the fingerprint of its inputs, and an edited bundle is parsed again (§8.6) | `src/domains/catalog/index.ts` | `test/unit/catalog.test.ts`, `test/contract/catalog.test.ts` | `bun test test/unit test/contract` | proved |
 | The publication of a bundle is an operator command and never an HTTP route (§8.6) | `scripts/policy.ts`, `scripts/collection.ts` | the absence of a route in `src/app/app.ts` and the command itself | `bun run architecture`, `bun test test/contract` | proved |
 | The negation of a predicate follows the three valued logic of the database (§9.3) | `src/domains/authorization/filter.ts` | `test/integration/filter.test.ts` (the differential test against the server), `test/unit/authorization.test.ts` | `bun test test/integration test/unit` | proved |
+| The aggregate reads the rows that the list reads, with the same predicates and the same filter (§9.8) | `src/domains/records/service.ts`, `src/domains/records/sql.ts` | `test/contract/aggregate.test.ts` | `bun test test/contract` | proved |
+| The fields of an aggregate are the fields the caller may filter and sort by (§9.8) | `src/domains/records/service.ts` | `test/contract/aggregate.test.ts` | `bun test test/contract` | proved |
+| The groups of an aggregate are bounded, and the answer says when they are not all of them (§9.8) | `src/domains/records/service.ts` | `test/contract/aggregate.test.ts` | `bun test test/contract` | proved |
+| The search reads the fields the deployment declares searchable, and the index of the search is used (§9.9) | `src/domains/records/sql.ts`, `migrations/0007_search.sql` | `test/contract/search.test.ts`, `test/integration/search.test.ts` (the plan of the database) | `bun test test/contract test/integration` | proved |
+| A search never reaches the predicates of a policy (§9.9) | `src/domains/records/service.ts` | `test/contract/search.test.ts` | `bun test test/contract` | proved |
+| Two replicas serve the same records, and the drain of one leaves the other serving (§15.3) | `src/runtime/composition.ts` | `test/integration/replicas.test.ts` | `bun test test/integration` | proved |
 
 ### The API and the transactions (§9, §10)
 
@@ -119,11 +125,11 @@ one of them has to be green before a release.
 | The suite | The command | The result of the last run |
 | --- | --- | --- |
 | The rules of the domains | `bun test test/unit` | 66 passed |
-| The contract of the API | `bun test test/contract` | 55 passed |
-| The database, the transactions and the worker | `bun test test/integration` | 38 passed |
+| The contract of the API | `bun test test/contract` | 71 passed |
+| The database, the transactions and the worker | `bun test test/integration` | 43 passed |
 | The boundaries of the code | `bun test test/architecture` | 2 passed |
-| The consumer of the client | `bun test packages/client/test` | 9 passed |
-| The whole repository | `bun run test:all` | 170 passed |
+| The consumer of the client | `bun test packages/client/test` | 10 passed |
+| The whole repository | `bun run test:all` | 192 passed |
 | The gateway, the hub and the backend | `bun run test:compat` | 21 steps, passed |
 | The capacity | `bun run scripts/capacity.ts` | four scenarios, the report of `docs/capacity.md` |
 

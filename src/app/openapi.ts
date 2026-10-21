@@ -53,6 +53,36 @@ export function openapiDocument(schemaVersion: string): Record<string, unknown> 
           },
         },
       },
+      '/ws/{workspaceId}/v1/aggregate/{collection}': {
+        get: {
+          summary: 'The groups of an aggregate.',
+          description:
+            'The aggregate reads the rows that a list would read: the same scope, the same predicates of the policies and the same filter. The number of the groups is bounded, and the answer says when the groups of the answer are not all of them.',
+          parameters: [
+            workspaceParameter(),
+            collectionParameter(),
+            queryParameter('group_by', 'Up to three fields the rows are grouped by.', 'string'),
+            queryParameter(
+              'metrics',
+              'The metrics of the groups: `sum:amount`, `avg:amount`, `min:amount`, `max:amount`.',
+              'string'
+            ),
+            queryParameter('filter', 'A url encoded json filter.', 'string'),
+            queryParameter(
+              'search',
+              'The text of the search of the collection, over the fields the deployment declares searchable.',
+              'string'
+            ),
+            queryParameter('limit', 'The maximum number of the groups, at most 1000.', 'integer'),
+          ],
+          responses: {
+            200: jsonResponse('The groups and their meta.'),
+            400: errorResponse('The query is not valid.'),
+            403: errorResponse('The caller may not read the collection.'),
+            404: errorResponse('The collection does not exist.'),
+          },
+        },
+      },
       '/ws/{workspaceId}/v1/items/{collection}': {
         get: {
           summary: 'A bounded, permission aware list.',
@@ -61,6 +91,11 @@ export function openapiDocument(schemaVersion: string): Record<string, unknown> 
             collectionParameter(),
             queryParameter('fields', 'Comma separated field names.', 'string'),
             queryParameter('filter', 'A url encoded json filter.', 'string'),
+            queryParameter(
+              'search',
+              'The text of the search of the collection, over the fields the deployment declares searchable.',
+              'string'
+            ),
             queryParameter('sort', 'Up to three fields, `-` for descending.', 'string'),
             queryParameter('limit', 'The size of the page, at most 200.', 'integer'),
             queryParameter('cursor', 'The cursor of the next page.', 'string'),

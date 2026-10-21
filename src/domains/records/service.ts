@@ -27,6 +27,11 @@ import {
 } from '../authorization'
 import type { CollectionDefinition, FieldDefinition } from '../schema'
 import {
+  type AggregateFunction,
+  type AggregateGroup,
+  type AggregateMetric,
+  type AggregateOptions,
+  type AggregateResult,
   type CreateOptions,
   type DeleteOptions,
   type ListOptions,
@@ -39,12 +44,17 @@ import {
   type UpdateOptions,
   type WriteResult,
   CURSOR_LIFETIME_MS,
+  DEFAULT_AGGREGATE_GROUPS,
   DEFAULT_LIMIT,
+  MAX_AGGREGATE_GROUP_FIELDS,
+  MAX_AGGREGATE_GROUPS,
+  MAX_AGGREGATE_METRICS,
   MAX_INCLUDES,
   MAX_LIMIT,
   MAX_RELATED_ROWS_PER_RESPONSE,
   MAX_RELATED_ROWS_PER_ROOT,
   MAX_RESPONSE_BYTES,
+  MAX_SEARCH_LENGTH,
   MAX_SELECTED_FIELDS,
   MAX_SORT_FIELDS,
 } from './types'
@@ -60,13 +70,16 @@ import {
 import { BodyError, validateBody } from './validation'
 import {
   EXPOSED_SERVER_FIELDS,
+  type AggregateMetricColumn,
   Parameters,
   type SortColumn,
+  buildAggregate,
   catalogueFor,
   compileInto,
   jsonExpression,
   keysetCondition,
   rowPredicate,
+  searchClause,
   sortColumns,
 } from './sql'
 
@@ -234,6 +247,7 @@ export class RecordsService {
     const queryKey = queryFingerprint({
       fields: [...selected].sort(),
       filter: options.filter ?? null,
+      search: options.search ?? null,
       sort: sort.map((column) => `${column.descending ? '-' : ''}${column.field}`),
       include: [...include].sort(),
       includeCount: options.includeCount,
@@ -247,10 +261,8 @@ export class RecordsService {
       const parameters = new Parameters()
       const scopeClause = `t.tenant_id = ${parameters.add(context.tenantId, 'uuid')} and t.workspace_id = ${parameters.add(context.workspaceId, 'uuid')}`
       const predicate = rowPredicate(policies, parameters, catalogue, substitutions)
-      const filterClause =
-        clientFilter.kind === 'all'
-          ? 'true'
-          : compileInto(clientFilter, parameters, { fields: catalogue, alias: 't' })
+      const search = this.#search(collection, options.search, filterable, parameters)
+      const filterClause = this.#filterClause(clientFilter, catalogue, parameters, search)
 
       let position: readonly unknown[] | null = null
       if (options.cursor) {
@@ -313,10 +325,13 @@ export class RecordsService {
         const countParameters = new Parameters()
         const countScope = `t.tenant_id = ${countParameters.add(context.tenantId, 'uuid')} and t.workspace_id = ${countParameters.add(context.workspaceId, 'uuid')}`
         const countPredicate = rowPredicate(policies, countParameters, catalogue, substitutions)
-        const countFilter =
-          clientFilter.kind === 'all'
-            ? 'true'
-            : compileInto(clientFilter, countParameters, { fields: catalogue, alias: 't' })
+        const countSearch = this.#search(collection, options.search, filterable, countParameters)
+        const countFilter = this.#filterClause(
+          clientFilter,
+          catalogue,
+          countParameters,
+          countSearch
+        )
         const countRows = await unit.query<{ count: string }>(
           `select count(*)::text as count from ${collection.table} t where ${countScope} and (${countPredicate}) and (${countFilter})`,
           countParameters.values
@@ -355,6 +370,182 @@ export class RecordsService {
         },
       }
     }, scope)
+  }
+
+  // ------------------------------------------------------------- aggregate
+
+  /**
+   * Aggregates the records of a collection.
+   *
+   * The aggregate reads the rows that a list would read: the same scope,
+   * the same predicate of the policies and the same filter of the
+   * caller. It is not a privileged query path, and it is bounded: the
+   * number of the groups is capped and the answer says when the groups
+   * of the answer are not all of them.
+   *
+   * The fields of the group and the fields of the metrics are the fields
+   * the caller may filter and sort by: the intersection of the policies
+   * is the conservative answer, and an aggregate over a field that a
+   * policy hides would leak what the policy protects.
+   */
+  async aggregate(
+    context: RequestContext,
+    collectionKey: string,
+    options: AggregateOptions
+  ): Promise<AggregateResult> {
+    const collection = this.#requireCollection(context, collectionKey)
+    const policies = this.#requireReadable(context, collection)
+    const catalogue = catalogueFor(collection)
+    const filterable = this.#filterableFields(context, collection)
+
+    const groupBy = this.#aggregateGroupBy(options.groupBy, filterable, catalogue)
+    const metrics = this.#aggregateMetrics(options.metrics, filterable, catalogue)
+    const clientFilter = this.#clientFilter(options.filter, catalogue, filterable)
+    const limit = Math.min(
+      Math.max(1, options.limit ?? DEFAULT_AGGREGATE_GROUPS),
+      MAX_AGGREGATE_GROUPS
+    )
+
+    const scope = this.#scope(context)
+    const substitutions = this.#substitutions(context)
+
+    return await this.#options.store.read(async (unit) => {
+      const parameters = new Parameters()
+      const scopeClause = `t.tenant_id = ${parameters.add(context.tenantId, 'uuid')} and t.workspace_id = ${parameters.add(context.workspaceId, 'uuid')} `
+      const predicate = rowPredicate(policies, parameters, catalogue, substitutions)
+      const search = this.#search(collection, options.search, filterable, parameters)
+      const filterClause = this.#filterClause(clientFilter, catalogue, parameters, search)
+
+      const sql = buildAggregate({
+        table: collection.table,
+        scopeClause,
+        predicate,
+        filterClause,
+        groupBy,
+        metrics,
+        catalogue,
+        parameters,
+        limit: limit + 1,
+      })
+      const rows = await unit.query<Record<string, unknown>>(sql, parameters.values)
+      const truncated = rows.length > limit
+      const page = rows.slice(0, limit)
+      const data = page.map((row) => mapAggregate(row, groupBy, metrics))
+      return {
+        data,
+        meta: { limit, groups: data.length, truncated },
+      }
+    }, scope)
+  }
+
+  /**
+   * The clause of a search.
+   *
+   * The search reads the fields that the deployment declared searchable,
+   * and they have to be the fields the caller may filter and sort by:
+   * a search over a field that a policy hides would disclose what the
+   * policy protects.
+   */
+  #search(
+    collection: CollectionDefinition,
+    text: string | undefined,
+    filterable: readonly string[],
+    parameters: Parameters
+  ): string | null {
+    if (text === undefined) return null
+    const trimmed = text.trim()
+    if (trimmed.length === 0) return null
+    if (trimmed.length > MAX_SEARCH_LENGTH) {
+      throw new ServiceError('INVALID_QUERY', {
+        message: `the search is longer than ${MAX_SEARCH_LENGTH} characters`,
+      })
+    }
+    if (!collection.search) {
+      throw new ServiceError('INVALID_QUERY', { message: 'the collection has no search' })
+    }
+    for (const field of collection.search.fields) {
+      if (!filterable.includes(field)) {
+        throw new ServiceError('FORBIDDEN', {
+          message: 'the search may not be used by this caller',
+        })
+      }
+    }
+    return searchClause(collection, parameters, trimmed)
+  }
+
+  /** The clause of the filter of a caller, with the search that follows it. */
+  #filterClause(
+    clientFilter: FilterNode,
+    catalogue: Record<string, FieldDefinition>,
+    parameters: Parameters,
+    search: string | null
+  ): string {
+    const filter =
+      clientFilter.kind === 'all'
+        ? 'true'
+        : compileInto(clientFilter, parameters, { fields: catalogue, alias: 't' })
+    return search === null ? filter : `(${filter}) and (${search})`
+  }
+
+  /** The fields of the group of an aggregate. */
+  #aggregateGroupBy(
+    fields: readonly string[],
+    filterable: readonly string[],
+    catalogue: Record<string, FieldDefinition>
+  ): string[] {
+    if (fields.length === 0) return []
+    if (fields.length > MAX_AGGREGATE_GROUP_FIELDS) {
+      throw new ServiceError('INVALID_QUERY', {
+        message: `an aggregate groups by at most ${MAX_AGGREGATE_GROUP_FIELDS} fields`,
+      })
+    }
+    const names: string[] = []
+    for (const field of fields) {
+      if (!catalogue[field]) {
+        throw new ServiceError('INVALID_QUERY', { message: `the field "${field}" is not known` })
+      }
+      if (!filterable.includes(field)) {
+        throw new ServiceError('INVALID_QUERY', {
+          message: `the field "${field}" may not be used to group the records`,
+        })
+      }
+      names.push(field)
+    }
+    return names
+  }
+
+  /** The metrics of an aggregate. */
+  #aggregateMetrics(
+    metrics: readonly AggregateMetric[],
+    filterable: readonly string[],
+    catalogue: Record<string, FieldDefinition>
+  ): AggregateMetricColumn[] {
+    if (metrics.length > MAX_AGGREGATE_METRICS) {
+      throw new ServiceError('INVALID_QUERY', {
+        message: `an aggregate holds at most ${MAX_AGGREGATE_METRICS} metrics`,
+      })
+    }
+    const columns: AggregateMetricColumn[] = []
+    for (const metric of metrics) {
+      const definition = catalogue[metric.field]
+      if (!definition) {
+        throw new ServiceError('INVALID_QUERY', {
+          message: `the field "${metric.field}" is not known`,
+        })
+      }
+      if (!filterable.includes(metric.field)) {
+        throw new ServiceError('INVALID_QUERY', {
+          message: `the field "${metric.field}" may not be used in an aggregate`,
+        })
+      }
+      if (!supportsAggregate(metric.function, definition)) {
+        throw new ServiceError('INVALID_QUERY', {
+          message: `the function "${metric.function}" is not defined for the type "${definition.type}"`,
+        })
+      }
+      columns.push({ function: metric.function, field: metric.field })
+    }
+    return columns
   }
 
   // ------------------------------------------------------------------ get
@@ -1249,6 +1440,69 @@ function mapRow(
     position,
     foreignKeys: keys,
   }
+}
+
+/**
+ * Reports whether a function of an aggregate is defined for a type.
+ *
+ * The sum and the average are the functions of the numbers, and the
+ * minimum and the maximum are the functions of the values that have an
+ * order. The rules are the rules of the operators of the filters: a
+ * function that is not defined for a type is refused before the
+ * statement runs.
+ */
+function supportsAggregate(fn: AggregateFunction, definition: FieldDefinition): boolean {
+  if (fn === 'sum' || fn === 'avg') {
+    return definition.type === 'integer' || definition.type === 'decimal'
+  }
+  return ['string', 'text', 'integer', 'decimal', 'uuid', 'timestamp', 'enum'].includes(
+    definition.type
+  )
+}
+
+/**
+ * Maps the row of an aggregate to the group it holds.
+ *
+ * The values of the group and the values of the metrics are the values
+ * of the rows: a minimum of a field is the field as a row carries it.
+ */
+function mapAggregate(
+  row: Record<string, unknown>,
+  groupBy: readonly string[],
+  metrics: readonly AggregateMetricColumn[]
+): AggregateGroup {
+  const group: Record<string, unknown> = {}
+  groupBy.forEach((field, index) => {
+    group[field] = row[`g${index}`] ?? null
+  })
+  const result: {
+    group: Record<string, unknown>
+    count: number
+    sum?: Record<string, string | null>
+    avg?: Record<string, string | null>
+    min?: Record<string, unknown>
+    max?: Record<string, unknown>
+  } = {
+    group,
+    count: Number(row.count ?? '0'),
+  }
+  for (const metric of metrics) {
+    const value = row[`${metric.function}:${metric.field}`] ?? null
+    if (metric.function === 'sum') {
+      result.sum = { ...(result.sum ?? {}), [metric.field]: value === null ? null : String(value) }
+      continue
+    }
+    if (metric.function === 'avg') {
+      result.avg = { ...(result.avg ?? {}), [metric.field]: value === null ? null : String(value) }
+      continue
+    }
+    if (metric.function === 'min') {
+      result.min = { ...(result.min ?? {}), [metric.field]: value }
+      continue
+    }
+    result.max = { ...(result.max ?? {}), [metric.field]: value }
+  }
+  return result
 }
 
 /** The type of a column of the database. */

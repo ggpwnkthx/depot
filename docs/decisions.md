@@ -310,3 +310,51 @@ parsing of the bundle from the path of the request, and it does not
 weaken the guarantee: a bundle that was edited in the database has
 another digest, and it is parsed again and refused when it cannot be
 used.
+
+## 21. The search is a parameter of the query and not an operator of the filter
+
+The search of a collection is the `search` parameter of the list and of
+the aggregate. It is not an operator of the filter grammar.
+
+**Why.** The predicates of the policies are evaluated twice: they are
+compiled to SQL for the reads and they are evaluated in memory for the
+writes, over the row that is locked. The two evaluations have to answer
+the same question about the same row, and the differential test proves
+that they do. A text search has no meaning in the second evaluation:
+the ranking and the stemming of the database have no equivalent in the
+memory of the process, and a policy that read a text search would
+authorize a write with a rule that the reads do not apply. The search
+is therefore a parameter of the queries of the callers, and it never
+reaches a predicate of a policy.
+
+The fields of the search are the fields that the deployment declares
+searchable, and they have to be the fields the caller may filter and
+sort by: a search over a field that a policy hides would disclose what
+the policy protects, exactly as a sort over that field would.
+
+The index of the search is a part of the reviewed migration of the
+collection, and its expression is the expression of the statement of the
+search. The database only uses the index when the two are the same, and
+a difference is a silent regression: the search answers the same rows
+and it costs a scan of the table. The test of the integration reads the
+plan of the database and it fails when the index is not used.
+
+## 22. The aggregate reads the rows that a list reads, and it uses the fields that the caller may filter by
+
+The aggregate is a statement of a list with a `group by`: the same
+scope, the same disjunction of the read predicates of the policies and
+the same filter of the caller. The fields of the group and the fields
+of the metrics are the fields the caller may filter and sort by.
+
+**Why.** An aggregate that reads the rows of another query is a
+privileged query path, and the specification refuses them. The
+intersection of the read policies is the conservative answer, and it is
+the answer the filter and the sort already give: a caller that may not
+filter by a field may not learn the distribution of that field either.
+
+The sum and the average of an integer are decimals, exactly as the
+database answers them: the sum of a big integer does not fit in a big
+integer, and a number that does not fit would be a lie. The number of
+the groups is bounded, and the answer says when the groups of the
+answer are not all of them: a truncated answer that does not say it is
+truncated is a lie too.

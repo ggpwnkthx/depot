@@ -20,6 +20,11 @@ import {
   verifyGatewayRequest,
 } from '../domains/gateway-context'
 import type { CatalogProvider } from '../domains/catalog'
+import {
+  type AggregateFunction,
+  type AggregateMetric,
+  AGGREGATE_FUNCTIONS,
+} from '../domains/records'
 import type { RecordsService } from '../domains/records'
 import type { WorkspaceIdentity } from '../domains/workspaces'
 import { envelopeFor } from './errors'
@@ -85,6 +90,7 @@ const ROUTES: readonly { pattern: RegExp; methods: readonly string[] }[] = [
   { pattern: /^\/ws\/[^/]+\/v1\/me$/, methods: ['GET'] },
   { pattern: /^\/ws\/[^/]+\/v1\/schema$/, methods: ['GET'] },
   { pattern: /^\/ws\/[^/]+\/v1\/schema\/[^/]+$/, methods: ['GET'] },
+  { pattern: /^\/ws\/[^/]+\/v1\/aggregate\/[^/]+$/, methods: ['GET'] },
   { pattern: /^\/ws\/[^/]+\/v1\/items\/[^/]+$/, methods: ['GET', 'POST'] },
   { pattern: /^\/ws\/[^/]+\/v1\/items\/[^/]+\/[^/]+$/, methods: ['GET', 'PATCH', 'DELETE'] },
   { pattern: /^\/ws\/[^/]+\/v1\/audit$/, methods: ['GET'] },
@@ -332,12 +338,37 @@ export function createApp(dependencies: AppDependencies): Hono<AppEnv> {
     return c.json({ data: collection }, 200, { 'cache-control': 'no-store' })
   })
 
+  app.get(`${scope}/aggregate/:collection`, establish, async (c) => {
+    const context = requireContext(c)
+    const url = new URL(c.req.url)
+    const query = readQuery(url, ['group_by', 'metrics', 'filter', 'search', 'limit'])
+    const limit = query.has('limit') ? Number(query.get('limit')) : undefined
+    if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 1000)) {
+      throw new ServiceError('INVALID_QUERY', { message: 'the limit is not a valid number' })
+    }
+    const groupBy = (query.get('group_by') ?? '')
+      .split(',')
+      .map((field) => field.trim())
+      .filter((field) => field.length > 0)
+    const metrics = parseMetrics(query.get('metrics') ?? '')
+    const filter = query.has('filter') ? parseJson(query.get('filter')!) : undefined
+    const result = await dependencies.records.aggregate(context, collectionOf(c), {
+      groupBy,
+      metrics,
+      ...(filter === undefined ? {} : { filter }),
+      ...(query.has('search') ? { search: query.get('search')! } : {}),
+      limit: limit ?? 100,
+    })
+    return c.json({ data: result.data, meta: result.meta }, 200, { 'cache-control': 'no-store' })
+  })
+
   app.get(`${scope}/items/:collection`, establish, async (c) => {
     const context = requireContext(c)
     const url = new URL(c.req.url)
     const query = readQuery(url, [
       'fields',
       'filter',
+      'search',
       'sort',
       'limit',
       'cursor',
@@ -359,6 +390,7 @@ export function createApp(dependencies: AppDependencies): Hono<AppEnv> {
           }
         : {}),
       ...(filter === undefined ? {} : { filter }),
+      ...(query.has('search') ? { search: query.get('search')! } : {}),
       ...(query.has('sort')
         ? {
             sort: query
@@ -552,6 +584,38 @@ function parseJson(value: string): unknown {
   } catch {
     throw new ServiceError('INVALID_QUERY', { message: 'the filter is not json' })
   }
+}
+
+/**
+ * Parses the metrics of an aggregate.
+ *
+ * A metric is `count`, or a function and a field: `sum:amount`. The
+ * function is checked by the domain, and the field with it.
+ */
+function parseMetrics(value: string): AggregateMetric[] {
+  const metrics: AggregateMetric[] = []
+  for (const entry of value.split(',')) {
+    const name = entry.trim()
+    if (name.length === 0) continue
+    if (name === 'count') continue
+    const separator = name.indexOf(':')
+    if (separator <= 0 || separator === name.length - 1) {
+      throw new ServiceError('INVALID_QUERY', {
+        message: 'a metric is count, or a function and a field',
+      })
+    }
+    const fn = name.slice(0, separator)
+    const field = name.slice(separator + 1)
+    if (!(AGGREGATE_FUNCTIONS as readonly string[]).includes(fn)) {
+      throw new ServiceError('INVALID_QUERY', { message: `the function "${fn}" is not known` })
+    }
+    metrics.push({ function: fn as AggregateFunction, field })
+  }
+  if (metrics.length === 0) {
+    // The count of the rows is always part of the answer.
+    return []
+  }
+  return metrics
 }
 
 /**

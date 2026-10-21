@@ -264,6 +264,7 @@ export async function createRuntime(options: CompositionOptions = {}): Promise<R
         })
       : undefined
 
+  let stopped = false
   return {
     settings,
     app,
@@ -272,6 +273,11 @@ export async function createRuntime(options: CompositionOptions = {}): Promise<R
     ...(worker ? { worker } : {}),
     readiness,
     stop: async () => {
+      // The stop is idempotent: a deployment may send a second signal
+      // while the first one is draining, and the pools refuse to be
+      // closed twice.
+      if (stopped) return
+      stopped = true
       if (worker) await worker.stop()
       await dataPool.close()
       await registryPool.close()

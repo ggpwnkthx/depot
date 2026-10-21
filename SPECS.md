@@ -87,6 +87,7 @@ Collection metadata may contain semantic labels and descriptions. Widget identif
 | Catalog of a workspace | Register the collections a workspace serves and publish the bundle of policies that applies to it, without altering the physical schema. |
 | Headless metadata | Return policy-filtered collection, field, relation, and action metadata. |
 | Record API | Create, list, fetch, update, and delete records with bounded queries and optimistic concurrency. |
+| Aggregates | Group the rows that a list would read, with bounded groups and the same predicates and filters. |
 | Authorization | Enforce tenant/workspace isolation, action permissions, row predicates, field visibility, and write checks. |
 | Audit | Record committed mutations in an append-only audit log. |
 | Events | Commit an outbox event with each mutation; deliver to trusted, code-registered subscribers. |
@@ -102,7 +103,7 @@ Collection metadata may contain semantic labels and descriptions. Widget identif
 | Public realtime subscriptions | Subscription domain over committed events, with continuing authorization and revocation handling. Shuttle supplies transport proxying. |
 | Webhooks, schedules, configurable workflows | Delivery/jobs domains using outbox events and explicit service-principal authority. |
 | GraphQL | Another transport over the same query and command services. |
-| Aggregations, bulk writes, exports, full-text search | Bounded operations using the same row and field rules; no separate privileged query path. |
+| Bulk writes, exports | Bounded operations using the same row and field rules; no separate privileged query path. The aggregates of section 9.8 and the searches of section 9.9 are the exceptions: they are bounded and they use the same row and field rules. |
 | Runtime schema editing and arbitrary database introspection | Versioned schema-management contract and reviewed migration workflow. The catalog of a workspace is a logical registry and it never creates or alters a table. |
 | Editing the policies of a workspace over HTTP | The publication of a bundle is an operator command. An endpoint that writes policies would be an authority that bypasses Hub, and the grants of a principal stay the business of Hub. |
 | Marketplace or uploaded extensions | Explicit execution and trust model. Version 0.1 only allows code registered by the deployer. |
@@ -410,6 +411,7 @@ A collection manifest defines:
 - Fields, types, nullability, defaults, and bounds.
 - Relationships and allowed query behavior.
 - Semantic labels/descriptions.
+- The fields of the search of the collection, when it has one, and the configuration of the text search of the database.
 - A schema version and the policy references that apply to the collection.
 
 It does not contain executable client scripts or Studio component implementations. Manifest and policy files are UTF-8 JSON, at most 1 MiB each, validated against strict versioned schemas. Policy bundles contain at most 1,000 policies. Unknown configuration properties are rejected.
@@ -590,7 +592,7 @@ Relation expansion is limited to depth 1, 100 related rows per root record, and 
 
 Single-item reads and mutations return `404 NOT_FOUND` for an unknown or row-inaccessible record. A missing collection-level action capability returns `403 FORBIDDEN` without a record existence check.
 
-Counts use exactly the same row predicates and client filter as the corresponding list. Version 0.1 has no generic aggregation, export, full-text, or bulk-mutation endpoint.
+Counts use exactly the same row predicates and client filter as the corresponding list. The aggregates of section 9.8 use exactly the same row predicates and client filter as the corresponding list. Version 0.1 has no generic export, full-text, or bulk-mutation endpoint.
 
 Audit access requires `data.audit.read`. This is a separately granted workspace-scoped capability, not a side effect of editing business records. Audit readers can see the workspace's audit identifiers and field-name metadata as an explicit privilege.
 
@@ -825,6 +827,56 @@ Core status mapping:
 | `504` | `DEADLINE_EXCEEDED` |
 
 A Hub service-credential error is an operator/dependency failure, not a request for the end user to log in again.
+
+### 9.8 Aggregates
+
+`GET /ws/{workspaceId}/v1/aggregate/{collection}` groups the records of a collection.
+
+| Parameter | Format and default |
+| --- | --- |
+| `group_by` | Comma-separated field names; at most 3. Default is no grouping, and the answer holds one group. |
+| `metrics` | Comma-separated metrics: `sum:field`, `avg:field`, `min:field`, `max:field`. At most 10. The count of the rows is always part of the answer. |
+| `filter` | URL-encoded JSON filter object, with the grammar of section 9.3. |
+| `limit` | The maximum number of the groups; default 100, maximum 1000. |
+
+The aggregate reads the rows that the corresponding list reads: the same scope, the same disjunction of the read predicates of the policies and the same filter of the caller. It is not a privileged query path.
+
+The fields of the group and the fields of the metrics are the fields the caller may filter and sort by: the intersection of the read policies is the conservative answer, and an aggregate over a field that a policy hides would disclose what the policy protects.
+
+The functions are checked against the types of the fields: `sum` and `avg` are the functions of the integers and the decimals, `min` and `max` are the functions of the values that have an order. A function that is not defined for a type is `400 INVALID_QUERY`.
+
+The sum and the average of an integer are decimals, exactly as the database answers them: the sum of a big integer does not fit in a big integer. The minimum and the maximum of a field are the values of the field, in the representation the rows use.
+
+The answer holds the number of the groups and whether the groups of the answer are all of them. The groups are ordered by the fields of the group, so the answer is stable.
+
+~~~json
+{
+  "data": [
+    {
+      "group": { "status": "draft" },
+      "count": 12,
+      "sum": { "amount": "42.50" },
+      "min": { "amount": "1.00" },
+      "max": { "amount": "9.00" }
+    }
+  ],
+  "meta": { "limit": 100, "groups": 1, "truncated": false }
+}
+~~~
+
+### 9.9 Search
+
+`GET /ws/{workspaceId}/v1/items/{collection}?search=<text>` searches the collection. The aggregate of section 9.8 accepts the same parameter.
+
+The search is a text search of the database over the fields that the manifest declares searchable. The caller supplies the text and the deployment supplies the fields and the configuration of the text search: a caller never chooses the fields of a search and never chooses the configuration.
+
+The search is combined with the filter of the caller, and the count of a list counts the rows of the search.
+
+The searchable fields of a collection have to be the fields the caller may filter and sort by. A search over a field that a policy hides would disclose what the policy protects, and the service refuses it with `403 FORBIDDEN`.
+
+The search is not an operator of the filter grammar. The predicates of the policies are evaluated in memory by the write path, and a text search has no meaning there: the search is a query of the callers and it never reaches the predicates of a policy.
+
+The text of a search is at most 256 characters. The index of the search is a part of the reviewed migration of the collection, and the expression of the index is the expression of the statement: a deployment that changes one of them changes the other.
 
 ## 10. Mutation and transaction rules
 

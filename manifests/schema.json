@@ -41,6 +41,10 @@
           "nullable": true
         }
       },
+      "search": {
+        "fields": ["title", "body"],
+        "config": "english"
+      },
       "relations": {
         "category": {
           "target": "categories",

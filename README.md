@@ -142,6 +142,8 @@ in the next request.
 | --- | --- |
 | [`SPECS.md`](SPECS.md) | The contract of the release. |
 | [`IMPLEMENTATION.md`](IMPLEMENTATION.md) | The milestones and the traceability matrix. |
+| [`docs/contract.md`](docs/contract.md) | The stable surface of the service: the contract of v1. |
+| [`CHANGELOG.md`](CHANGELOG.md) | The changes of the service. |
 | [`docs/decisions.md`](docs/decisions.md) | The choices of the implementation and their reasons. |
 | [`docs/operations.md`](docs/operations.md) | The probes, the metrics, the logs and the drain. |
 | [`docs/migrations.md`](docs/migrations.md) | The migrations and the drift. |

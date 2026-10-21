@@ -108,6 +108,18 @@ const server = Bun.serve({
         meta: { limit: 1, nextCursor: null },
       })
     }
+    if (url.pathname.endsWith('/v1/aggregate/articles')) {
+      return json({
+        data: [
+          {
+            group: { status: 'draft' },
+            count: 3,
+            sum: { amount: '12.50' },
+          },
+        ],
+        meta: { limit: 100, groups: 1, truncated: false },
+      })
+    }
     if (url.pathname.endsWith('/v1/audit')) {
       return json({ data: [{ id: '1' }], meta: { limit: 50, nextCursor: null } })
     }
@@ -201,6 +213,24 @@ describe('the client of the api', () => {
       etag: '"sha256:0000000000000000000000000000000000000000000000000000000000000000"',
     })
     expect(calls.at(-1)!.method).toBe('DELETE')
+  })
+
+  test('it aggregates the groups of a collection', async () => {
+    const answer = await client.aggregate('articles', {
+      groupBy: ['status'],
+      metrics: ['sum:amount'],
+      filter: { status: { _eq: 'draft' } },
+      limit: 50,
+    })
+    expect(answer.data[0]?.count).toBe(3)
+    expect(answer.data[0]?.group.status).toBe('draft')
+    expect(answer.data[0]?.sum?.amount).toBe('12.50')
+    expect(answer.meta.truncated).toBe(false)
+    const call = calls[calls.length - 1]!
+    expect(call.path).toContain('/v1/aggregate/articles?')
+    expect(call.path).toContain('group_by=status')
+    expect(call.path).toContain('metrics=sum%3Aamount')
+    expect(call.path).toContain('limit=50')
   })
 
   test('it exposes the stable codes of the errors', async () => {

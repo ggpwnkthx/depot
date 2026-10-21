@@ -64,6 +64,8 @@ export interface ListOptions {
   fields?: readonly string[]
   /** The filter of the query. */
   filter?: unknown
+  /** The text of the search of the collection. */
+  search?: string
   /** The sort of the query, `-name` for descending. */
   sort?: readonly string[]
   /** The size of the page, at most 200. */
@@ -78,6 +80,42 @@ export interface ListOptions {
 export interface Page<T = RecordValue> {
   data: T[]
   meta: { limit: number; nextCursor: string | null; count?: number }
+}
+
+/** The options of an aggregate. */
+export interface AggregateOptions {
+  /** The fields the rows are grouped by. */
+  groupBy?: readonly string[]
+  /** The metrics of every group, `sum:amount` for a sum of an amount. */
+  metrics?: readonly string[]
+  /** The filter of the query. */
+  filter?: unknown
+  /** The text of the search of the collection. */
+  search?: string
+  /** The maximum number of the groups, at most 1000. */
+  limit?: number
+}
+
+/** One group of an aggregate. */
+export interface AggregateGroup {
+  /** The values of the fields of the group. */
+  group: Record<string, unknown>
+  /** The number of the rows of the group. */
+  count: number
+  /** The sums of the fields, when a sum was asked. */
+  sum?: Record<string, string | null>
+  /** The averages of the fields, when an average was asked. */
+  avg?: Record<string, string | null>
+  /** The smallest values of the fields, when a minimum was asked. */
+  min?: Record<string, unknown>
+  /** The largest values of the fields, when a maximum was asked. */
+  max?: Record<string, unknown>
+}
+
+/** The answer of an aggregate. */
+export interface AggregateResult {
+  data: AggregateGroup[]
+  meta: { limit: number; groups: number; truncated: boolean }
 }
 
 /** The metadata of a collection. */
@@ -201,6 +239,7 @@ export class DataClient {
     const query = new URLSearchParams()
     if (options.fields) query.set('fields', options.fields.join(','))
     if (options.filter !== undefined) query.set('filter', JSON.stringify(options.filter))
+    if (options.search !== undefined) query.set('search', options.search)
     if (options.sort) query.set('sort', options.sort.join(','))
     if (options.limit !== undefined) query.set('limit', String(options.limit))
     if (options.cursor) query.set('cursor', options.cursor)
@@ -229,6 +268,26 @@ export class DataClient {
       yield page.data
       cursor = page.meta.nextCursor ?? undefined
     } while (cursor)
+  }
+
+  /**
+   * The groups of an aggregate.
+   *
+   * The metrics are the names of the functions and of the fields:
+   * `sum:amount`. The count of the rows is always part of the answer.
+   */
+  async aggregate(key: string, options: AggregateOptions = {}): Promise<AggregateResult> {
+    const query = new URLSearchParams()
+    if (options.groupBy) query.set('group_by', options.groupBy.join(','))
+    if (options.metrics) query.set('metrics', options.metrics.join(','))
+    if (options.filter !== undefined) query.set('filter', JSON.stringify(options.filter))
+    if (options.search !== undefined) query.set('search', options.search)
+    if (options.limit !== undefined) query.set('limit', String(options.limit))
+    const suffix = query.toString()
+    const answer = await this.#call<{ data: AggregateGroup[]; meta: AggregateResult['meta'] }>(
+      `/aggregate/${key}${suffix ? `?${suffix}` : ''}`
+    )
+    return { data: answer.body.data, meta: answer.body.meta }
   }
 
   /** One record. */

@@ -6,6 +6,11 @@
  */
 
 export {
+  type AggregateFunction,
+  type AggregateGroup,
+  type AggregateMetric,
+  type AggregateOptions,
+  type AggregateResult,
   type CreateOptions,
   type CreateReceipt,
   type DataStore,
@@ -20,14 +25,20 @@ export {
   type UnitOfWork,
   type UpdateOptions,
   type WriteResult,
+  AGGREGATE_FUNCTIONS,
   CURSOR_LIFETIME_MS,
+  DEFAULT_AGGREGATE_GROUPS,
   DEFAULT_LIMIT,
+  MAX_AGGREGATE_GROUP_FIELDS,
+  MAX_AGGREGATE_GROUPS,
+  MAX_AGGREGATE_METRICS,
   MAX_INCLUDES,
   MAX_LIMIT,
   MAX_RECORD_BODY_BYTES,
   MAX_RELATED_ROWS_PER_RESPONSE,
   MAX_RELATED_ROWS_PER_ROOT,
   MAX_RESPONSE_BYTES,
+  MAX_SEARCH_LENGTH,
   MAX_SELECTED_FIELDS,
   MAX_SORT_FIELDS,
 } from './types'

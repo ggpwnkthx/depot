@@ -100,6 +100,16 @@ export interface CollectionDefinition {
   readonly fields: Readonly<Record<string, FieldDefinition>>
   /** The relations of the collection. */
   readonly relations: Readonly<Record<string, RelationDefinition>>
+  /** The search of the collection, when it has one. */
+  readonly search?: SearchDefinition
+}
+
+/** The search of a collection. */
+export interface SearchDefinition {
+  /** The fields the search reads. */
+  readonly fields: readonly string[]
+  /** The configuration of the text search of the database. */
+  readonly config: string
 }
 
 /** A whole manifest bundle. */
@@ -139,6 +149,15 @@ export class ManifestError extends Error {
 
 /** The pattern of a collection key and of a physical table. */
 export const COLLECTION_KEY_PATTERN = /^[a-z][a-z0-9_]{0,62}$/
+
+/**
+ * The pattern of the configuration of the text search.
+ *
+ * The configuration is written in the statement of the search: it is not
+ * a value of a caller, it is a part of the deployment, and the pattern
+ * keeps it a plain name.
+ */
+export const SEARCH_CONFIG_PATTERN = /^[a-z][a-z0-9_]{0,31}$/
 
 /** Reports whether a value is an object and not an array. */
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -303,6 +322,42 @@ function parseRelation(
   return relation
 }
 
+/** Parses the search of a collection. */
+function parseSearch(
+  raw: unknown,
+  fields: Record<string, FieldDefinition>,
+  where: string
+): SearchDefinition {
+  if (!isObject(raw)) throw new ManifestError(`${where}: the search is not an object`)
+  assertKnownKeys(raw, ['fields', 'config'], `${where}: the search`)
+  const names = raw.fields
+  if (!Array.isArray(names) || names.length === 0) {
+    throw new ManifestError(`${where}: the search must hold at least one field`)
+  }
+  if (names.length > 10) {
+    throw new ManifestError(`${where}: the search holds at most ten fields`)
+  }
+  const fieldsOfSearch: string[] = []
+  for (const name of names) {
+    if (typeof name !== 'string' || !COLLECTION_KEY_PATTERN.test(name)) {
+      throw new ManifestError(`${where}: the search names an invalid field`)
+    }
+    const definition = fields[name]
+    if (!definition) {
+      throw new ManifestError(`${where}: the search names the unknown field "${name}"`)
+    }
+    if (definition.type !== 'string' && definition.type !== 'text') {
+      throw new ManifestError(`${where}: the search names "${name}", which is not a text`)
+    }
+    fieldsOfSearch.push(name)
+  }
+  const config = raw.config
+  if (typeof config !== 'string' || !SEARCH_CONFIG_PATTERN.test(config)) {
+    throw new ManifestError(`${where}: the search has an invalid configuration`)
+  }
+  return { fields: fieldsOfSearch, config }
+}
+
 /**
  * Parses and validates a manifest bundle.
  *
@@ -343,7 +398,7 @@ export function parseManifestBundle(raw: string): ManifestBundle {
     if (!isObject(entry)) throw new ManifestError('a collection of the manifest is not an object')
     assertKnownKeys(
       entry,
-      ['key', 'table', 'label', 'description', 'fields', 'relations'],
+      ['key', 'table', 'label', 'description', 'fields', 'relations', 'search'],
       'a collection of the manifest'
     )
     const key = entry.key
@@ -386,6 +441,10 @@ export function parseManifestBundle(raw: string): ManifestBundle {
         rawRelations.push({ collection: key, name, definition })
       }
     }
+    let search: SearchDefinition | undefined
+    if (entry.search !== undefined) {
+      search = parseSearch(entry.search, fields, `the collection "${key}"`)
+    }
     const collection: {
       -readonly [Key in keyof CollectionDefinition]: CollectionDefinition[Key]
     } = {
@@ -394,6 +453,7 @@ export function parseManifestBundle(raw: string): ManifestBundle {
       label: entry.label,
       fields,
       relations: {},
+      ...(search ? { search } : {}),
     }
     if (entry.description !== undefined) {
       if (typeof entry.description !== 'string') {

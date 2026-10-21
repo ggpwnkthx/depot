@@ -181,6 +181,39 @@ export function keysetCondition(
 }
 
 /**
+ * Builds the clause of a search.
+ *
+ * The search is a text search of the database over the fields that the
+ * deployment declared searchable. The configuration is a part of the
+ * deployment and it is written in the statement: the pattern of the
+ * manifest keeps it a plain name, and the values of the search are
+ * bound parameters.
+ *
+ * The search is never evaluated in memory: it belongs to the queries of
+ * the callers and not to the predicates of the policies, and the write
+ * path never reads it.
+ */
+export function searchClause(
+  collection: CollectionDefinition,
+  parameters: Parameters,
+  text: string,
+  alias = 't'
+): string | null {
+  const search = collection.search
+  if (!search || search.fields.length === 0) return null
+  // The configuration is casted explicitly: the index of the search
+  // holds the expression with the cast, and the database only uses the
+  // index when the two expressions are the same.
+  const config = `'${search.config}'::regconfig`
+  const vectors = search.fields.map((field) => {
+    const column = `${quoteIdentifier(alias)}.${quoteIdentifier(field)}`
+    return `to_tsvector(${config}, coalesce(${column}, ''))`
+  })
+  const query = parameters.add(text)
+  return `(${vectors.join(' || ')}) @@ plainto_tsquery(${config}, ${query})`
+}
+
+/**
  * The predicate of the rows of a collection.
  *
  * The predicate is the disjunction of the predicates of the read
@@ -197,4 +230,76 @@ export function rowPredicate(
     compileInto(policy.where, parameters, { fields, alias: 't', substitutions })
   )
   return `(${parts.join(' or ')})`
+}
+
+/** One metric of an aggregate, as the statement builder reads it. */
+export interface AggregateMetricColumn {
+  /** The function of the metric. */
+  readonly function: 'sum' | 'avg' | 'min' | 'max'
+  /** The field the metric reads. */
+  readonly field: string
+}
+
+/** The options of the statement of an aggregate. */
+export interface AggregateStatement {
+  readonly table: string
+  readonly scopeClause: string
+  readonly predicate: string
+  readonly filterClause: string
+  /** The fields the rows are grouped by. */
+  readonly groupBy: readonly string[]
+  /** The metrics of every group. */
+  readonly metrics: readonly AggregateMetricColumn[]
+  readonly catalogue: Record<string, FieldDefinition>
+  readonly parameters: Parameters
+  /** The maximum number of groups, plus the one that detects the truncation. */
+  readonly limit: number
+}
+
+/**
+ * Builds the statement of an aggregate.
+ *
+ * The statement is the statement of a list with a `group by`: the same
+ * scope, the same predicate of the policies and the same filter of the
+ * caller. An aggregate is not a privileged query path: it reads the rows
+ * that a list would read, and nothing else.
+ *
+ * The groups are ordered by the fields of the group, so the answer is
+ * stable and a caller may page it.
+ */
+export function buildAggregate(options: AggregateStatement): string {
+  const alias = 't'
+  const groupColumns = options.groupBy.map(
+    (field) => `${quoteIdentifier(alias)}.${quoteIdentifier(field)}`
+  )
+  const groupSelections = options.groupBy.map((field, index) => {
+    const definition = options.catalogue[field]
+    return `${jsonExpression(field, definition ?? serverFieldDefinition(field))} as ${quoteIdentifier(`g${index}`)}`
+  })
+  const metricSelections = options.metrics.map((metric) => {
+    const column = `${quoteIdentifier(alias)}.${quoteIdentifier(metric.field)}`
+    const name = quoteIdentifier(`${metric.function}:${metric.field}`)
+    switch (metric.function) {
+      case 'sum':
+        // The sum of an integer is a decimal: the sum of a big integer
+        // does not fit in a big integer.
+        return `sum(${column})::text as ${name}`
+      case 'avg':
+        return `avg(${column})::text as ${name}`
+      case 'min':
+        return `min(${column}) as ${name}`
+      case 'max':
+        return `max(${column}) as ${name}`
+      default:
+        throw new Error('the function of the metric is not known')
+    }
+  })
+  const selection = [
+    ...groupSelections,
+    `count(*)::text as ${quoteIdentifier('count')}`,
+    ...metricSelections,
+  ].join(', ')
+  const group = groupColumns.length > 0 ? `group by ${groupColumns.join(', ')}` : ''
+  const order = groupColumns.length > 0 ? `order by ${groupColumns.join(', ')}` : ''
+  return `select ${selection} from ${options.table} ${alias} where ${options.scopeClause} and (${options.predicate}) and (${options.filterClause}) ${group} ${order} limit ${options.limit}`
 }
