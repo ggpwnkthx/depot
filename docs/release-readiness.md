@@ -32,6 +32,7 @@ gates of a release", and the findings of the review are in
 | The rehearsal of the backup and of the restore | Done | `bash scripts/rehearse-backup.sh`, and [the record](backup-restore.md) |
 | The measurement of the capacity | Done | `bun run scripts/capacity.ts`, and [the report](capacity.md) |
 | The audit of the dependencies | Done | `bun audit`, a step of the continuous integration |
+| The power of the suites | Done | `bun run test:mutation`: the code is broken on purpose and the suites have to notice |
 
 ## The findings of the review
 

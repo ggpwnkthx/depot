@@ -43,6 +43,7 @@ e-mail address and a query never become a label.
 | `data_delivery_failures_total`, `data_delivery_retries_total` | The failed and the retried deliveries. |
 | `data_draining` | `1` while the process drains. |
 | `data_in_flight_requests` | The requests that are handled. |
+| `data_tenant_overload_total` | The requests that were refused because their tenant held its whole room. |
 
 The backlog and the age of the oldest delivery are the capacity of the
 outbox. A backlog that grows is a subscriber that does not keep up, and

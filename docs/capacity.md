@@ -90,6 +90,17 @@ a shared machine, and the numbers of a development machine are the
 numbers of that machine and of that moment. The report is a
 measurement, and not a promise.
 
+**The run of the table above varies.** Three consecutive runs of the
+command on the machine of the measurement answered 967/s, 985/s and
+1043/s for the read heavy scenario: the machine is shared, and the
+spread between two runs is of the order of a fifth. A number of this
+report is the number of one run, and a deployment that compares two of
+them compares two moments of a shared machine and not two versions of
+the service. The size of an answer is now measured by the database,
+while it is built, and the measurement is not visible in the spread:
+the rows are measured where the data already is, and the process does
+not serialize a row to know how big it is.
+
 ## The shape of the statements at scale
 
 The report above measures the latency of the service on a small table.

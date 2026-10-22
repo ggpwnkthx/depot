@@ -444,3 +444,125 @@ integer, and a number that does not fit would be a lie. The number of
 the groups is bounded, and the answer says when the groups of the
 answer are not all of them: a truncated answer that does not say it is
 truncated is a lie too.
+
+## 25. The failures of the database are translated into the codes of the contract
+
+The driver of PostgreSQL answers with the SQLSTATE of the server. The
+service translates it into the code of the contract in one table, in
+the platform layer, and the domain never sees the state of the server.
+
+**Why.** The contract publishes the codes, and a client switches on the
+code. A lock that was not granted in time is a `409 CONFLICT` and not
+an internal error of the service, and a statement that ran out of its
+budget is a `504 DEADLINE_EXCEEDED`. The translation is deliberately
+conservative: a state that is not in the table is not translated, and a
+defect of the service — a statement that does not parse, a column that
+does not exist — stays an internal error. A translation that hides a
+defect behind a plausible answer is worse than an answer that is
+obviously wrong.
+
+**The cost.** The reason of the failure is the cause of the error and
+not its message: the answer of the service is the safe summary of the
+code, and the reason belongs to the log. The log of a failure of the
+database carries the state of the server, and the answer of the service
+does not.
+
+## 26. A statement that fails does not break a connection
+
+A statement that fails — a constraint that is violated, a lock that is
+not granted — leaves the connection usable: the transaction is rolled
+back and the session is clean. A failure of the connection itself does
+not: the state of the session is unknown, and the connection must not
+go back to the pool.
+
+**Why.** The two failures were not told apart, and a failing statement
+took the connection with it: the connection was neither returned to the
+pool nor destroyed, and it was lost. Twenty failing writes exhausted
+the pool of the api, and every request of the deployment answered
+`503` afterwards. The pool of the api is the resource that the
+isolation of the tenants relies on, and a client that may spend it
+with twenty bad requests may spend it with twenty thousand.
+
+**The cost.** A connection that is broken is destroyed, and the pool
+opens a new one: a failure of the network costs a connection of the
+pool and not a request.
+
+## 27. The size of an answer is measured by the database, and the budget is spent as the answer is built
+
+The four mebibytes of the contract are a bound of the resources of the
+service and not only of the bytes that leave it. The size of every
+piece of the payload of a row is measured by the statement that built
+the row, the budget is spent as the answer is built, and the answer is
+refused as soon as the budget is spent.
+
+**Why.** The budget was checked once the answer was built, so it
+bounded the bytes that leave the service and not the memory that it
+holds: the answer of four megabytes could cost two hundred megabytes
+of memory before it was refused. The measurement is in the database
+because the data is there: the process does not serialize a row to
+know how big it is, and the measurement costs the hot path nothing.
+
+**The expansion of a relation is read in chunks.** The chunk aims at a
+mebibyte and its size follows the size of the rows: a collection of
+small rows is read in big chunks, and a collection of large rows is
+read in small ones. The relation of a page is read with one statement
+and not with one statement per root row: the expansion was a query per
+row of the page, and the bound of the rows was a thousand per root
+record.
+
+**The cost.** The measure counts the pieces that the policies do not
+grant for a row: the budget is an upper bound of the size of the
+answer, and never a lower one. An answer that is just under the bound
+may be refused a little early.
+
+## 28. The cache of the context is bounded
+
+The cache of the context is bounded, the entries that are spent leave
+it, and the entry that is the least recently used leaves it when it is
+full.
+
+**Why.** The cache is the mitigation of the availability of Hub: it is
+the answer of a deployment that prefers the availability over the
+instant revocation. It was a map without a bound and without a sweep,
+and an entry left it only when the same key was asked again. A
+mitigation that grows without a bound is a leak, and the leak appears
+exactly when the mitigation is used.
+
+## 29. The bound of a tenant is applied after the tenant is known
+
+The bound of the listener is the bound of the machine, and it answers a
+`503 OVERLOADED`. The bound of a tenant is applied once the tenant of
+the request is known — after the signature of the gateway and the
+registry of the workspaces — and it answers a `429 TOO_MANY_REQUESTS`
+with a `Retry-After`.
+
+**Why.** The two bounds answer two different questions. The first one
+says that the service is full; the second one says that the caller is
+sending too much. A tenant that takes the room of the others receives
+an answer that tells it that the service is broken, and it does not
+know that it is the one that is talking too much.
+
+**The cost.** The room of a tenant is the room of the process until the
+deployment declares another one. A deployment with one tenant does not
+need to declare it, and a deployment with several declares the room
+that each of them holds. A bound may not be disabled: the
+specification refuses a bound that a zero turns off.
+
+## 30. The suites are broken on purpose, and they have to notice
+
+The gate of the mutation takes the code, breaks it on purpose, and
+checks that the suites notice. A mutation that survives is a behaviour
+that nothing in the repository proves.
+
+**Why.** Every check of this repository was written by the author of
+the code, and a check that agrees with the code because it shares its
+assumptions proves nothing. The gate is the part of the answer that a
+machine can give: it does not replace the review of somebody else, and
+it found five behaviours that nothing proved — the type of the
+protected header of the signature, the critical header, the fields of a
+row, the bound of a collection, and the connection of the pool.
+
+**The cost.** The gate is slow: it runs a suite per mutation. It only
+covers the mutations that were thought of, and a mutation that is
+equivalent — a defect that another defect already covers — survives
+without meaning anything.

@@ -14,8 +14,58 @@ repository](https://github.com/ggpwnkthx/depot/releases).
 
 The changes that are not published yet. They are the first step of the
 version `1.0.0`: they close the open finding of the security review
-about the predicate of a write, and they do not change the contract of
-the API.
+about the predicate of a write, they make the codes of the contract
+reachable, and they do not change the contract of the API.
+
+### Fixed
+
+- **The failures of the database are the codes of the contract.** A
+  lock that was not granted in time, a constraint that was violated
+  and a statement that ran out of its budget were answered with a
+  `500 INTERNAL_ERROR`. They are answered with the codes that the
+  contract publishes: `409 CONFLICT`, `422 VALIDATION_FAILED`,
+  `504 DEADLINE_EXCEEDED` and `503 DATABASE_UNAVAILABLE`. The
+  translation of the SQLSTATE of the server is one table, in the
+  platform layer.
+- **A refusal of a cursor is not an internal error.** A cursor that
+  was tampered with answered `500 INTERNAL_ERROR`; it answers the
+  `400 INVALID_CURSOR` of the contract, and a cursor that expired
+  answers `409 CURSOR_STALE`.
+- **A statement that failed does not take the connection of the pool
+  with it.** A failing statement marked the transaction as broken, and
+  a broken connection was neither returned to the pool nor destroyed:
+  the connection was lost. Twenty failing writes exhausted the pool
+  of the api and every request of the deployment answered `503`
+  afterwards. A connection that is broken is destroyed, and a statement
+  that fails does not break a connection.
+- **The budget of the size of an answer bounds the memory.** The four
+  mebibytes of the contract were checked once the answer was built.
+  The budget is spent as the answer is built, and an answer that is
+  refused is never built.
+- **The expansion of a relation is read with one statement.** The
+  expansion was read with one statement per root row of the page, and
+  it was read in one piece. It is read in chunks whose size follows
+  the size of the rows, and the relation of a page is read at once.
+
+### Added
+
+- **The gate of the mutation.** The gate breaks the code on purpose —
+  the type of the protected header, the expiry of a cursor, the scope
+  of a cursor, the fields of a row, the predicates of a write, the
+  bound of the cache of the context, the connection of the pool — and
+  it checks that the suites notice. A mutation that survives is a
+  behaviour that nothing in the repository proves. The gate found five
+  of them, and the suites that prove them were written.
+- **The bound of a tenant.** The bound of the listener is the bound of
+  the machine, and a tenant that sent more requests than the others
+  took the room of the others. The bound of a tenant answers a `429
+  TOO_MANY_REQUESTS` with a `Retry-After`. The room of a tenant is the
+  room of the process until the deployment declares another one, and a
+  deployment with several tenants declares it with
+  `DATA_MAX_IN_FLIGHT_REQUESTS_PER_TENANT`.
+- **The bound of the cache of the context.** The cache is bounded, and
+  the entries that are spent leave it. It is declared with
+  `DATA_CONTEXT_CACHE_MAX_ENTRIES`.
 
 ### Changed
 

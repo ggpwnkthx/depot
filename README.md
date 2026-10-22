@@ -103,6 +103,7 @@ starts one in a temporary directory.
 | `bun test test/unit` | The rules of the domains. |
 | `bun test test/contract` | The contract of the HTTP API. |
 | `bun test test/integration` | The database, the transactions and the worker. |
+| `bun run test:mutation` | The gate that breaks the code on purpose and checks that the suites notice. |
 | `bun run test:compat` | The real gateway, the real hub and the real backend. |
 | `bun run check:client-package` | The packed client, installed outside of the repository. |
 | `docker build .` / `docker compose up --build` | The image and the stack of the development machine. |

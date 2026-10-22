@@ -55,6 +55,7 @@ process, and their version is the digest of their content.
 | `DATA_HUB_URL` | required | The base url of Hub. It must be `https` in production: the credential of the context travels with it. |
 | `DATA_HUB_CONTEXT_TOKEN_FILE` | required | The file of the service credential of the access context contract. |
 | `DATA_CONTEXT_CACHE_TTL_MS` | `0` | The lifetime of the read only cache of the context, from 0 to 5000. The default is no cache: a mutation and a worker command always ask for a fresh one. |
+| `DATA_CONTEXT_CACHE_MAX_ENTRIES` | `4096` | The number of the entries of the cache of the context. The cache is bounded: the entry that is the least recently used leaves it when it is full, and the entries that are spent leave it when it is written. |
 | `DATA_HUB_TIMEOUT_MS` | `1000` | The bound of a call to Hub. |
 
 ## The budgets
@@ -67,6 +68,7 @@ process, and their version is the digest of their content.
 | `DATA_DB_ACQUIRE_TIMEOUT_MS` | `1000` | The wait for a connection. |
 | `DATA_MAX_BODY_BYTES` | `1048576` | The body of a request. The body of a record is 256 KiB. |
 | `DATA_MAX_IN_FLIGHT_REQUESTS` | `200` | The requests that are handled at the same time. The excess is refused, not queued. |
+| `DATA_MAX_IN_FLIGHT_REQUESTS_PER_TENANT` | the value of `DATA_MAX_IN_FLIGHT_REQUESTS` | The requests of a tenant that are handled at the same time. The default is the bound of the whole process: a deployment with one tenant gives the whole room to its tenant, and a deployment with several declares the room that each of them holds. The excess is a `429 TOO_MANY_REQUESTS` and not a `503 OVERLOADED`. |
 | `DATA_DRAIN_MS` | `30000` | The budget of the drain. |
 | `DATA_DB_POOL_MAX` | `20` | The connections of the data role of the process. |
 

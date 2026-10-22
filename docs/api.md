@@ -81,6 +81,20 @@ A refusal is a refusal: the service never says which policy refused
 the request, and it never distinguishes an unknown principal of an
 unknown grant.
 
+The codes of the failures of the database are the codes of the
+contract: a lock that was not granted in time is a `409 CONFLICT`, a
+constraint that was violated is a `409 CONFLICT` or a
+`422 VALIDATION_FAILED`, a statement that ran out of its budget is a
+`504 DEADLINE_EXCEEDED`, and a database that is not reachable is a
+`503 DATABASE_UNAVAILABLE`. A `500 INTERNAL_ERROR` is a defect of the
+service and nothing else.
+
+The `429 TOO_MANY_REQUESTS` is the answer of a tenant that holds its
+whole room, and it carries a `Retry-After`. The room of a tenant is the
+room of the process until the deployment declares another one; a
+deployment with several tenants declares it with
+`DATA_MAX_IN_FLIGHT_REQUESTS_PER_TENANT`.
+
 ## The parameters of the queries
 
 | Parameter | Where | What it is |
@@ -173,9 +187,10 @@ update or delete changes the later pages.
 ## The canonical read and the validators
 
 The read of one record answers all the fields that are readable for
-that row, plus `id` and `version`. The endpoint does not accept
-`fields` or `include`: a client that wants a projection uses the
-list.
+that row, plus `id` and `version`. The endpoint accepts no parameter
+of a query: `fields` and `include` are refused with a
+`400 INVALID_QUERY`, like every parameter that is not known, and a
+client that wants a projection uses the list.
 
 The backend serializes the canonical representation deterministically —
 the keys are sorted recursively, the order of the arrays is preserved,

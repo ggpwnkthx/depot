@@ -28,6 +28,7 @@ matrix of the imports that the domains may use is there.
 | The contract of the API | `bun test test/contract` | The paths, the envelopes, the limits of the queries, the codes of the errors, the canonical ETags, the receipts, the aggregates, the search, the catalog and the cases of the attack. |
 | The database and the worker | `bun test test/integration` | The row level security, the transactions, the claims of the workers, the replicas, the differential test of the predicates, the differential test of the guard of a write and the plan of the search. |
 | The boundaries | `bun test test/architecture` | The imports that are allowed, the absence of a cycle and the construction of the private adapters. |
+| The power of the suites | `bun run test:mutation` | The gate that breaks the code on purpose and checks that the suites notice: a mutation that survives is a behaviour that nothing in the repository proves. |
 | The consumer of the client | `bun test packages/client/test` | The client against a mocked API. |
 | The whole repository | `bun run test:all` | Every suite above. |
 | The platform | `bun run test:compat` | The real gateway, the real Hub and the real backend, with the acceptance scenario through the gateway. |
@@ -62,6 +63,7 @@ bun run lint
 bun run format:check
 bun run architecture
 bun test test/unit test/contract test/integration test/architecture packages/client/test
+bun run test:mutation
 bun run test:compat
 ```
 

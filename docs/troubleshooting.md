@@ -72,6 +72,31 @@ Hub is not available, or it does not speak the version of the contract.
   have `BYPASSRLS`.
 - The pool may not be exhausted: `data_db_pool_waits_total` grows.
 - The statement timeout may be too short for a slow query.
+- The database may not be reachable: the answer of the connection is
+  the one of the dependency, and it is not an internal error.
+
+## The api answers 429 TOO_MANY_REQUESTS
+
+- The tenant of the request holds its whole room: the answer carries a
+  `Retry-After` of one second, and the caller has to slow down.
+- The bound is declared with `DATA_MAX_IN_FLIGHT_REQUESTS_PER_TENANT`.
+  It is zero by default, and a deployment with one tenant does not
+  need it.
+- The refusals are counted by `data_tenant_overload_total`. A tenant
+  that is refused often is a tenant that sends too much, and the answer
+  of the listener is a `503 OVERLOADED` when the whole process is
+  full.
+
+## The api answers 409 CONFLICT
+
+- A lock of a row was not granted in time: another transaction holds
+  the row. The answer is a conflict with the current state of the
+  record, and the caller reads the record again before it writes it.
+- A unique constraint was violated: two writes of the same record
+  raced, and one of them won.
+- The same operation is already running: the answer is a `409
+  OPERATION_IN_PROGRESS` with a `Retry-After` of one second, and the
+  caller retries with the same body and the same idempotency key.
 
 ## The api answers 422 RESULT_TOO_LARGE
 
