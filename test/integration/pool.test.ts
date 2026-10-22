@@ -7,13 +7,10 @@ import {
   WORKSPACE_ID,
   type Harness,
 } from '../helpers/harness'
-import { testDatabase, type TestDatabase } from '../helpers/database'
 
 let harness: Harness
-let database: TestDatabase
 
 beforeAll(async () => {
-  database = await testDatabase()
   harness = await createHarness()
   harness.hub.grants.set(PRINCIPAL_ID, [
     {
@@ -24,8 +21,10 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  // The server of the tests is shared by the suites: it is stopped
+  // when the process ends, and a suite that stops it takes the server
+  // from the suites that run after it.
   await harness?.stop()
-  await database?.stop()
 })
 
 /** The body of a response, as json. */
@@ -50,7 +49,7 @@ async function create(title: string): Promise<{ id: string; etag: string }> {
 describe('the pool of the database', () => {
   test('it survives the statements that fail', async () => {
     const { id, etag } = await create('the pool probe')
-    const other = new Client({ connectionString: database.runtimeUrl })
+    const other = new Client({ connectionString: harness.database.runtimeUrl })
     await other.connect()
     await other.query('begin')
     await other.query(
