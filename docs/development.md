@@ -84,6 +84,7 @@ a build whose dependencies carry a known vulnerability.
 | `bun run scripts/delivery.ts` | `list`, `requeue`, `backlog` of the deliveries. |
 | `bun run scripts/retention.ts` | The retention of the history. |
 | `bun run scripts/backup.sh`, `restore.sh` | The backup and the rehearsal of the restore. |
+| `bash scripts/rehearse-backup.sh` | The rehearsal of the backup and of the restore, on a server of its own. |
 | `bun run scripts/architecture.ts` | The check of the boundaries of the code. |
 | `bun run scripts/capacity.ts` | The measurement of the capacity. |
 | `bun run scripts/scale.ts` | The plan of the statements at a million rows, and the walk of every page. |

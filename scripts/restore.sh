@@ -6,7 +6,13 @@
 # checks that the deliveries of the restored state are still safe.
 #
 #   DATA_ADMIN_DATABASE_URL=... DATA_RUNTIME_DATABASE_URL=... \
-#   DATA_BACKUP_FILE=... ./scripts/restore.sh
+# DATA_BACKUP_FILE=... ./scripts/restore.sh
+#
+# The restore runs with the administrator of the server: the tables of
+# the deployment are protected by the row level security, and the rows
+# of a restore belong to every tenant. The ownership of the restored
+# tables goes back to the owner of the schema, when the url of the
+# owner is given.
 
 set -euo pipefail
 
@@ -28,6 +34,41 @@ PY
 
 echo "the backup is restored"
 pg_restore --no-owner --dbname "${RESTORE_URL}" "${DATA_BACKUP_FILE}"
+
+# The ownership of the restored tables goes back to the owner of the
+# schema: the restore is done with the administrator of the server, and
+# the owner is the only role that may alter the schema.
+if [ -n "${DATA_OWNER_DATABASE_URL:-}" ]; then
+  echo "the ownership of the restored tables goes back to the owner of the schema"
+  OWNER_URL="$(python3 - "${DATA_OWNER_DATABASE_URL}" "${DATA_RESTORE_DATABASE}" <<'PY'
+import sys
+from urllib.parse import urlsplit, urlunsplit
+url = urlsplit(sys.argv[1])
+print(urlunsplit((url.scheme, url.netloc, '/' + sys.argv[2], url.query, url.fragment)))
+PY
+)"
+  psql "${RESTORE_URL}" -v ON_ERROR_STOP=1 -q <<'SQL'
+do $$
+declare
+  entry record;
+begin
+  for entry in
+    select c.relname as name, n.nspname as schema
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname in ('platform', 'data') and c.relkind in ('r', 'p')
+  loop
+    execute format('alter table %I.%I owner to data_owner', entry.schema, entry.name);
+  end loop;
+  for entry in
+    select nspname as name from pg_namespace where nspname in ('platform', 'data')
+  loop
+    execute format('alter schema %I owner to data_owner', entry.name);
+  end loop;
+end
+$$;
+SQL
+fi
 
 echo "the isolation of the tenants is checked"
 # The rows of a workspace are only visible in the scope of their

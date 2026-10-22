@@ -43,6 +43,23 @@ the API.
   step of the continuous integration, with the seeds of the other
   generated checks.
 
+### Fixed
+
+- **The backup of a deployment works with the roles of the
+  deployment.** The tables of the deployment carry the row level
+  security, and it is forced: the owner of a table is subject to it.
+  The backup was taken with the owner of the schema, and `pg_dump`
+  refused to read the rows. The command of the backup refuses a role
+  that is subject to the policies of the tables and names the role that
+  bypasses them, and the command of the restore gives the ownership of
+  the restored tables back to the owner of the schema.
+- **The rehearsal of the backup and of the restore is a command of the
+  repository.** `bash scripts/rehearse-backup.sh` starts a server of
+  its own, it provisions the roles, it applies the migrations, it
+  writes a workspace and its record, and it runs the two commands of
+  the deployment. The rehearsal of the release candidate of the version
+  `1.0.0` is in [the backup and the restore](backup-restore.md).
+
 ### Deprecated
 
 - **The legacy verification of the identity of the gateway.** The

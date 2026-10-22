@@ -102,7 +102,7 @@ of the api. Each command reads the one it needs.
 | `DATA_OWNER_DATABASE_URL` | `migrate.ts`, `workspace.ts`, `collection.ts`, `policy.ts` — the owner of the schema. |
 | `DATA_MAINTENANCE_DATABASE_URL` | `retention.ts` — the maintenance role. |
 | `DATA_DELIVERY_DATABASE_URL` | `delivery.ts` — the metadata of the deliveries. |
-| `DATA_BACKUP_DATABASE_URL`, `DATA_BACKUP_DIR` | `backup.sh`. |
+| `DATA_BACKUP_DATABASE_URL`, `DATA_BACKUP_DIR` | `backup.sh`. The role of the backup bypasses the row level security: the backup holds the rows of every tenant. |
 | `DATA_BACKUP_FILE`, `DATA_RESTORE_DATABASE`, `DATA_RUNTIME_DATABASE_URL` | `restore.sh`. |
 | `DATA_AUDIT_RETENTION_DAYS`, `DATA_RECEIPT_RETENTION_HOURS`, `DATA_EVENT_RETENTION_DAYS`, `DATA_RETENTION_ACTOR` | `retention.ts`. |
 | `DATA_MIGRATIONS_DIR` | `migrate.ts` — the directory of the migrations, `./migrations` by default. |
