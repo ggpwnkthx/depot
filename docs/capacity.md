@@ -3,8 +3,8 @@
 The numbers of this report were measured by `bun run scripts/capacity.ts`
 on the machine that is described below. They are **not** a promise about
 another machine: a deployment declares its own request rate and its own
-latency objective, and it measures them with the same command on its own
-hardware.
+latency objective, and it measures them with the same command on its
+own hardware.
 
 ## The method
 
@@ -12,8 +12,8 @@ The command starts a complete deployment of the development machine: a
 PostgreSQL server, a hub of the fixtures, the backend and a load of
 concurrent clients. The clients speak the protocol of the gateway: they
 sign their requests with the private key of the pair of the identity,
-exactly like the pinned gateway does, and the backend verifies them with
-the public one.
+exactly like the pinned gateway does, and the backend verifies them
+with the public one.
 
 ```bash
 bun run scripts/capacity.ts
@@ -41,7 +41,7 @@ The knobs are the environment:
 | The runtime | Bun 1.4.3 |
 | The database | PostgreSQL 15.19, on the same machine, `fsync=off` and `synchronous_commit=off` |
 | The deployment | one api process, `DATA_DB_POOL_MAX=20`, the registry and the delivery pools of 5 |
-| The context cache | `DATA_CONTEXT_CACHE_TTL_MS=0`: every request asks the hub |
+| The context cache | `DATA_CONTEXT_CACHE_TTL_MS=0`: every request asks Hub |
 | The catalog | the workspace registered nothing: the catalog of the deployment is read with the registry of the workspaces, in one statement |
 | The data | 1000 articles of one workspace, one policy per action, the read of a page of 50 |
 
@@ -55,25 +55,15 @@ numbers of a development machine, and a deployment measures its own.
 | Read heavy, a page of 50 | 9912 | 991/s | 15.8 ms | 21.0 ms | 24.3 ms | 0 |
 | Mixed, half of the creations | 12511 | 1251/s | 11.6 ms | 23.7 ms | 28.1 ms | 0 |
 | The concurrent updates of one record | 3126 | 313/s | 50.8 ms | 62.2 ms | 69.0 ms | 0 (357 successes, 2769 precondition failures) |
-| The hub is down | 42801 | 4280/s | 3.6 ms | 5.3 ms | 7.6 ms | 42801 answers 503 |
-
-The numbers of the same machine, measured on the revision that reads
-the catalog of the workspace, are lower than the ones of the previous
-report: the machine was busier, and the catalog of the workspace is
-read with the registry of the workspaces. The two runs of the same
-revision on the same machine, with and without the catalog, are within
-seven percent of each other: the catalog costs the round trip of the
-statement that reads it, and the statement that reads it is the
-statement that read the workspace before.
+| Hub is down | 42801 | 4280/s | 3.6 ms | 5.3 ms | 7.6 ms | 42801 answers 503 |
 
 What the numbers say:
 
 - **The read path holds.** A page of fifty records is read in fifteen
-  milliseconds at the fiftieth percentile, with the context of the hub
-  asked for every time. The hub is the dependency of every request and
-  it is not on the critical path of the read of the records: the
-  context is fetched before the statement, and the statement is the
-  cheap part.
+  milliseconds at the fiftieth percentile, with the context of Hub asked
+  for every time. Hub is the dependency of every request, and it is not
+  on the critical path of the read of the records: the context is
+  fetched before the statement, and the statement is the cheap part.
 - **The writes cost more than the reads.** A creation writes the
   record, the audit entry, the event and the receipt, in one
   transaction. The mixed scenario is slower at the ninety fifth
@@ -83,11 +73,11 @@ What the numbers say:
   hold the current validator: one version change and one refusal per
   attempt, and no lost update. The latency of the scenario is the
   latency of the lock of the row.
-- **The service fails closed and fast.** When the hub is down, every
-  request answers `503 AUTHORIZATION_UNAVAILABLE` in two milliseconds:
-  the service does not queue the work and it does not serve a context
-  it cannot prove. The rate of the refusals is the rate of the failures
-  of the dependency.
+- **The service fails closed and fast.** When Hub is down, every request
+  answers `503 AUTHORIZATION_UNAVAILABLE` in two milliseconds: the
+  service does not queue the work, and it does not serve a context it
+  cannot prove. The rate of the refusals is the rate of the failures of
+  the dependency.
 
 ## The shape of the statements at scale
 
@@ -102,7 +92,7 @@ The statement of a read is in two parts. The first one reads the page:
 the identifiers of the rows, the order and the limit. The second one
 builds the payload of the rows of the page — and the payload is built
 by the statement, because a value the caller may not see must never
-leave the database (`docs/decisions.md` §2).
+leave the database (see [the decisions](decisions.md) §2).
 
 The order of the service is the order of the nulls last, in the two
 directions. The database writes it as `col asc nulls last`, and that is
@@ -139,10 +129,10 @@ of the nulls last.
   shape of the statements at scale is measured by
   `bun run scripts/scale.ts`, and the indexes of the filters of a
   collection belong to the reviewed migration of the collection.
-- **The maximum of the bounds.** The scenarios do not use a page of
-  200 records, a filter of fifty predicates or an expansion of a
-  thousand rows. The bounds are checked by the contract tests, and the
-  answer of the service refuses them with `422 RESULT_TOO_LARGE`.
+- **The maximum of the bounds.** The scenarios do not use a page of 200
+  records, a filter of fifty predicates or an expansion of a thousand
+  rows. The bounds are checked by the contract tests, and the answer of
+  the service refuses them with `422 RESULT_TOO_LARGE`.
 
 ## The declaration of a deployment
 

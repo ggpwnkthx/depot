@@ -2,10 +2,10 @@
 
 ## The probes
 
-| Endpoint | Contract |
+| Endpoint | The contract |
 | --- | --- |
 | `GET /healthz` | `200` while the process is alive. It calls no dependency. The answer carries the version of the service (`version`) and the version of the manifest of the deployment (`schemaVersion`). |
-| `GET /readyz` | `200` only when the configuration, the schema, the privileges of the role and the discovery of the hub are in order. `503` with a safe reason otherwise. |
+| `GET /readyz` | `200` only when the configuration, the schema, the privileges of the role and the discovery of Hub are in order. `503` with a safe reason otherwise. |
 | `GET /metrics` | The metrics of the service. `404` when the endpoint is disabled, `401` when the bearer token is missing or wrong. |
 
 The probes are not routed through the authorization of a workspace: a
@@ -17,8 +17,8 @@ The readiness of the api checks:
    `BYPASSRLS`,
 2. the applied migrations are the ones of the repository, with the same
    checksums,
-3. the discovery of the hub spoke the version of the access context
-   contract in the last ten seconds.
+3. the discovery of Hub spoke the version of the access context contract
+   in the last ten seconds.
 
 The readiness of a worker checks the delivery store as well, and it
 refuses to be ready without a registered subscriber.
@@ -34,12 +34,12 @@ e-mail address and a query never become a label.
 | --- | --- |
 | `data_requests_total` | The requests, by route, method and status. |
 | `data_request_duration_ms` | The duration of the requests. |
-| `data_hub_requests_total`, `data_hub_duration_ms` | The calls to the hub. |
+| `data_hub_requests_total`, `data_hub_duration_ms` | The calls to Hub. |
 | `data_context_cache_hits_total`, `data_context_cache_misses_total` | The cache of the context. |
 | `data_db_pool_waits_total`, `data_db_acquire_duration_ms` | The waits for a connection. |
 | `data_authorization_denials_total` | The refusals of the authorization. |
 | `data_transaction_rollbacks_total` | The rolled back transactions. |
-| `data_outbox_backlog`, `data_outbox_oldest_age_seconds` | The deliveries that are not finished and the age of the oldest. |
+| `data_outbox_backlog`, `data_outbox_oldest_age_seconds` | The deliveries that are not finished, and the age of the oldest. |
 | `data_delivery_failures_total`, `data_delivery_retries_total` | The failed and the retried deliveries. |
 | `data_draining` | `1` while the process drains. |
 | `data_in_flight_requests` | The requests that are handled. |
@@ -50,11 +50,11 @@ the retention of the completed events is bounded by seven days: a
 backlog that lasts longer than that is a deployment that needs more
 workers.
 
-The calls to the hub carry three labels: the method, the path of the
-contract and the outcome (`ok`, `refused` or `failed`). The hits and the
-misses of the cache of the context carry no label: the cache is keyed by
-the scope of the credential, the principal, the tenant, the workspace and
-the route, and none of them may become a label.
+The calls to Hub carry three labels: the method, the path of the
+contract and the outcome (`ok`, `refused` or `failed`). The hits and
+the misses of the cache of the context carry no label: the cache is
+keyed by the scope of the credential, the principal, the tenant, the
+workspace and the route, and none of them may become a label.
 
 The buckets of the histograms are cumulative: the count of a bucket is
 the count of the observations that are less than or equal to its bound.
@@ -70,8 +70,10 @@ docker build --tag depot:0.2.0 .
 
 It holds the runtime, the source, the manifests, the migrations and the
 operator commands, and it holds no secret: the credentials of the
-database, of the hub and of the signature of the gateway are files that
-the deployment mounts, and the process reads them when it starts.
+database, of Hub and of the signature of the gateway are files that
+the deployment mounts, and the process reads them when it starts. It
+runs as a user that is not `root`, and the base image is pinned by
+digest.
 
 The stack of the development machine — the database, the roles of the
 separation, the migrations and the service — is a compose file:
@@ -81,7 +83,7 @@ docker compose up --build
 ```
 
 The compose file runs the api only. The worker claims the deliveries of
-the events, and it needs a principal that the hub knows:
+the events, and it needs a principal that Hub knows:
 
 ```
 DATA_PROCESS_ROLE=all
@@ -89,9 +91,9 @@ DATA_WORKER_PRINCIPAL_ID=<the uuid of the principal of the worker>
 DATA_WORKER_ROUTE_ID=data-worker
 ```
 
-The gateway and the hub are not part of the compose file: they are the
-services of the platform, and the compatibility harness runs the three of
-them together against the pinned revisions.
+The gateway and Hub are not part of the compose file: they are the
+services of the platform, and the compatibility harness runs the three
+of them together against the pinned revisions.
 
 ## The logs
 
@@ -105,7 +107,7 @@ that renames a field does not leak it: the callers of the service never
 pass one.
 
 The refusals of the authorization are observable: the code of the error
-is in the log and the reason of the hub is not. The reason of a refusal
+is in the log and the reason of Hub is not. The reason of a refusal
 belongs to the operator, not to the caller.
 
 ## The drain
@@ -120,17 +122,17 @@ On `SIGTERM` or `SIGINT` the process:
    not finished, so that another worker claims them,
 4. closes the listener and the pools, exactly once.
 
-A connection whose transaction was aborted or whose state is unknown is
-destroyed: it never returns to the pool. A mutation that was committed
-before the disconnect stays committed, and the receipt of the creation
-resolves the ambiguous result of a `POST`.
+A connection whose transaction was aborted, or whose state is unknown,
+is destroyed: it never returns to the pool. A mutation that was
+committed before the disconnect stays committed, and the receipt of the
+creation resolves the ambiguous result of a `POST`.
 
 ## The budgets
 
 | Setting | Default | What it bounds |
 | --- | --- | --- |
 | `DATA_REQUEST_TIMEOUT_MS` | 10000 | The whole work of a request. |
-| `DATA_HUB_TIMEOUT_MS` | 1000 | A call to the hub. |
+| `DATA_HUB_TIMEOUT_MS` | 1000 | A call to Hub. |
 | `DATA_DB_STATEMENT_TIMEOUT_MS` | 3000 | A statement. The server cancels it. |
 | `DATA_DB_TRANSACTION_TIMEOUT_MS` | 5000 | A transaction. The connection is destroyed when the budget is spent. |
 | `DATA_DB_ACQUIRE_TIMEOUT_MS` | 1000 | The wait for a connection. |
@@ -141,8 +143,10 @@ resolves the ambiguous result of a `POST`.
 The effective timeout of a request is the smallest of the budgets that
 apply to it. A timer that leaves a statement running is not a
 cancellation: the statement timeout is a server side cancellation, and
-the transaction timeout destroys the connection, so the server rolls
-the transaction back.
+the transaction timeout destroys the connection, so the server rolls the
+transaction back.
+
+The variables and their bounds are in [the configuration](configuration.md).
 
 ## The catalog of the workspaces
 
@@ -178,16 +182,19 @@ cannot be used never applies, and the service fails closed. The
 publications are kept: a version is never changed and never removed.
 
 The catalog is read with the registry of the workspaces, in one
-statement, and nothing is cached: a bundle that was published is visible
-in the next request.
+statement, and nothing is cached from the database: a bundle that was
+published is visible in the next request.
+
+The other commands of the operator are in [the development](development.md)
+and in [the retention](retention.md).
 
 ## The rotation of the secrets
 
 | Secret | Where it lives | The rotation |
 | --- | --- | --- |
-| The public key of the identity of the gateway | The file of the binding (`publicKeyFile`) | It is a coordinated operation: the gateway signs with the private key of the pair and the backend verifies with the public one. The two accept a moment with two keys? No: the backend holds one key per binding. A rotation is a change of the configuration of the backend and a restart. The pair is generated by the gateway with `bun run identity:key`, and the private key never reaches the backend. |
+| The public key of the identity of the gateway | The file of the binding (`publicKeyFile`) | It is a coordinated operation: the gateway signs with the private key of the pair and the backend verifies with the public one. The backend holds one key per binding, so a rotation is a change of the configuration and a restart. The pair is generated by the gateway with `bun run identity:key`, and the private key never reaches the backend. |
 | The derived identity key of the gateway (legacy) | The file of the binding (`identityKeyFile`) | It is the migration path of the deployments that still share a key with their gateway. It is a signing capable secret, and a route that names the version `v4` is the only one that reads it. A deployment that leaves the legacy mode deletes the key of its secret store. |
-| The credential of the access context | `DATA_HUB_CONTEXT_TOKEN_FILE` | It is changed at the hub first, then at the backend. The backend answers `503 AUTHORIZATION_UNAVAILABLE` while the two do not agree. |
+| The credential of the access context | `DATA_HUB_CONTEXT_TOKEN_FILE` | It is changed at Hub first, then at the backend. The backend answers `503 AUTHORIZATION_UNAVAILABLE` while the two do not agree. |
 | The key of the cursors | `DATA_CURSOR_KEY_FILE` | A change invalidates the cursors that are alive: the clients receive `400 INVALID_CURSOR` and they start again. |
 | The password of the roles | The secret manager | `scripts/provision.ts` changes it. The pools reconnect. |
 

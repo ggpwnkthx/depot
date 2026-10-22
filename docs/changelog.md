@@ -5,7 +5,7 @@ follows the keep a changelog: the version, the date, and the changes
 grouped by what they change for a client.
 
 A version that changes what a client depends on is a major version. The
-rules of the change are in [`docs/contract.md`](docs/contract.md).
+rules of the change are in [`docs/api.md`](api.md).
 
 The releases that are published are in the [releases of the
 repository](https://github.com/ggpwnkthx/depot/releases).
@@ -22,7 +22,7 @@ integration is one manifest.
 that keeps the file of the bindings of the version 1 keeps working: it
 is read as the legacy mode it is. A deployment that moves to the public
 key writes the file of the version 2 and gives the gateway the private
-key of the pair; the steps are in [the README](../README.md).
+key of the pair; the steps are in [the getting started](getting-started.md).
 
 ### Changed
 
@@ -83,9 +83,9 @@ passes its own gates, and the compatibility harness runs it against the
 real gateway and the real hub — but it has never run outside its own
 harness. It has no production history, no external user, and no review
 that was written by somebody other than the author of the code. The
-trace of the implementation says "checked" and not "proved" for the same
+suites of the tests say "checked" and not "proved" for the same
 reason, and the review of the security of the service, with the findings
-that are still open, is in [`docs/security.md`](docs/security.md).
+that are still open, is in [`docs/security.md`](security.md).
 
 ### Added
 
@@ -105,7 +105,7 @@ that are still open, is in [`docs/security.md`](docs/security.md).
 - The **error codes** of the service are published in the OpenAPI
   document.
 - The typed client answers the aggregates, and it is built.
-- **[`docs/security.md`](docs/security.md)**: the model of the security
+- **[`docs/security.md`](security.md)**: the model of the security
   of the service, the review of it and the findings that are still open.
 - The **predicates of the check are generated.** The file
   `test/integration/filter.property.test.ts` writes the rows and the
@@ -172,13 +172,13 @@ that are still open, is in [`docs/security.md`](docs/security.md).
 
 ### Changed
 
-- The trace of the implementation says **checked** and not **proved**: a
+- The suites of the tests say **checked** and not **proved**: a
   check of the author of the code is not an assurance. The version of
   the service is marked as a pre-production release.
 
 ### The contract of v1
 
 The stable surface of the service is written down in
-[`docs/contract.md`](docs/contract.md): the paths, the envelopes, the
+[`docs/api.md`](api.md): the paths, the envelopes, the
 error codes, the grammar of the filter, the headers of a write, and the
 rules of a change.

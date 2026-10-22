@@ -22,7 +22,7 @@ export const BASELINE_START = '<!-- compatibility-baseline:start -->'
 export const BASELINE_END = '<!-- compatibility-baseline:end -->'
 
 /** The specification of the service. */
-const SPECS_FILE = 'SPECS.md'
+const SPECS_FILE = 'docs/specification.md'
 
 /** The directory of the workflows. */
 const WORKFLOWS_DIRECTORY = '.github/workflows'

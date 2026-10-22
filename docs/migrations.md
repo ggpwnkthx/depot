@@ -10,9 +10,13 @@ DATA_ADMIN_DATABASE_URL=... bun run scripts/provision.ts
 DATA_OWNER_DATABASE_URL=... bun run migrate
 ```
 
-The migration command takes an exclusive advisory lock: two deployments
-never apply a migration at the same time. The ledger of the migrations
-holds the identifier and the checksum of every applied migration.
+The command of the migrations takes an exclusive advisory lock: two
+deployments never apply a migration at the same time. The ledger of the
+migrations holds the identifier and the checksum of every applied
+migration.
+
+The directory of the migrations is `./migrations`, and
+`DATA_MIGRATIONS_DIR` changes it.
 
 ## The order of the migrations
 
@@ -23,11 +27,12 @@ holds the identifier and the checksum of every applied migration.
 | `0004_isolation.sql` | The row level security, the composite relations and the privileges of the roles. |
 | `0005_operator_policies.sql` | The policies of the owner of the schema and of the maintenance role. |
 | `0006_catalog.sql` | The catalog of the workspaces: the registry of the collections and the history of the published bundles. |
+| `0007_search.sql` | The index of the text search of the collections. |
 
 A migration that was applied is never changed: the checksum of the file
-is compared with the checksum of the ledger, and a difference is a drift
-that stops the readiness of the service. A change of a migration is a
-new migration.
+is compared with the checksum of the ledger, and a difference is a
+drift that stops the readiness of the service. A change of a migration
+is a new migration.
 
 ## The drift
 
@@ -45,9 +50,9 @@ drift is stopped by a migration and by a new release of the manifests.
 ## The bundles
 
 The manifests and the policies are deployment artifacts. They are
-immutable per process generation and their version is the digest of
-their content: two bundles with the same content have the same version,
-and a change of the content changes the version.
+immutable per generation of the process, and their version is the
+digest of their content: two bundles with the same content have the
+same version, and a change of the content changes the version.
 
 A change of the bundles is a release: the new bundles are read by the
 new replicas, and the old replicas keep the old ones. A schema change
@@ -56,7 +61,7 @@ first.
 
 ## The roles
 
-| Role | It may |
+| Role | What it may |
 | --- | --- |
 | `data_owner` | Own the schemas and the tables, apply the migrations, write the registry of the workspaces, run the backup and the restore. |
 | `data_runtime` | Read and write the business data of the scope of its transaction, append the audit log, write the events and the receipts. It may not alter the schema, it may not read the deliveries and it may not change the history. |
@@ -67,3 +72,6 @@ first.
 The api never uses the owner, the registry reader, the delivery role or
 the maintenance role. The credentials of the operator commands are not
 in the environment of the api.
+
+The roles are created by `scripts/provision.ts`, which takes the
+passwords from the environment and never prints them.

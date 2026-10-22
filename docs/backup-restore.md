@@ -9,8 +9,8 @@
 - the manifests and the policy bundle of the deployment, next to the
   dump.
 
-The secrets are **not** in the backup. The public key of the identity of
-the gateway, the derived identity key of the legacy format, the
+The secrets are **not** in the backup. The public key of the identity
+of the gateway, the derived identity key of the legacy format, the
 credential of the access context, the key of the cursors and the
 passwords of the roles belong to the secret manager of the deployment,
 and they are rotated and restored by it.
@@ -42,17 +42,17 @@ The rehearsal restores into a database of its own and it checks:
    role of the api, because an administrator bypasses the policies of
    the tables,
 3. the deliveries that were pending are still there, and they are still
-   safe: the worker claims them again, it asks the hub for a fresh
-   context and it does not repeat an effect that is already durable.
+   safe: the worker claims them again, it asks Hub for a fresh context,
+   and it does not repeat an effect that is already durable.
 
 The rehearsal is a part of the release of a deployment. The record of
 the last rehearsal is in the release notes of the deployment.
 
 ### The rehearsal of the release of version 0.1
 
-The rehearsal was run on the development machine of the release, on the
-PostgreSQL 15.19 of the machine, with the migrations of the repository
-and with one article in one workspace:
+The rehearsal was run on the development machine of the release, on
+the PostgreSQL 15.19 of the machine, with the migrations of the
+repository and with one article in one workspace:
 
 ```
 the backup is written to /tmp/rehearsal-backup/depot-20261021T172011Z.dump

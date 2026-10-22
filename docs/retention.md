@@ -17,8 +17,8 @@ DATA_MAINTENANCE_DATABASE_URL=... DATA_RETENTION_ACTOR=operator \
 
 The command runs with the maintenance role, in batches of a thousand
 rows, and it is idempotent. It never touches a business record: there
-is no generic collection endpoint that purges the platform history, and
-the audit log may not be edited by the api.
+is no generic collection endpoint that purges the history of the
+platform, and the audit log may not be edited by the api.
 
 The removals of the completed deliveries are followed by the removals of
 the events that have no delivery left. An event with a pending or a
@@ -26,10 +26,10 @@ failed delivery stays.
 
 ## The attribution
 
-The command takes the name of the operator in `DATA_RETENTION_ACTOR` and
-writes it in the log of the run. The audit log of the mutations of the
-business is not touched by the retention: the retention of the audit
-log is the removal of the entries themselves.
+The command takes the name of the operator in `DATA_RETENTION_ACTOR`
+and writes it in the log of the run. The audit log of the mutations of
+the business is not touched by the retention: the retention of the
+audit log is the removal of the entries themselves.
 
 ## The backlog
 
@@ -44,13 +44,28 @@ event that cannot be kept. The limit of the backlog of a deployment is
 the operator's decision: it is a multiple of the number of the events
 of a day of the traffic.
 
+## The deliveries of a failed subscriber
+
+A delivery that failed is not removed by the retention. The operator
+resolves it, and the requeue is an explicit command with an
+attribution:
+
+```bash
+DATA_DELIVERY_DATABASE_URL=... bun run scripts/delivery.ts list
+DATA_DELIVERY_DATABASE_URL=... bun run scripts/delivery.ts requeue \
+  --event <uuid> --subscriber <id> --actor <name>
+```
+
+The requeue does not bypass the authorization of the business: the
+handler of the subscriber asks Hub again before it does anything.
+
 ## The removal of a workspace
 
 Moving a workspace between tenants is not supported. The removal of a
 workspace is an explicit procedure:
 
 1. disable the workspace (`bun run scripts/workspace.ts disable --id <uuid>`): the
-   api answers `404` for it and no request reaches its data,
+   api answers `404` for it, and no request reaches its data,
 2. stop the deliveries of the workspace and resolve the pending ones,
 3. satisfy the retention and the export requirements of the deployment,
 4. remove the rows in bounded operations, with the owner of the schema.
