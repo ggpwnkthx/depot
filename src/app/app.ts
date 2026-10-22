@@ -27,6 +27,7 @@ import {
 } from '../domains/records'
 import type { RecordsService } from '../domains/records'
 import type { WorkspaceIdentity } from '../domains/workspaces'
+import type { TenantLimiter } from '../runtime/limits'
 import { envelopeFor } from './errors'
 import { openapiDocument } from './openapi'
 import { secretsMatch } from './secrets'
@@ -60,6 +61,14 @@ export interface AppDependencies {
   readonly logger: Logger
   readonly clock: Clock
   readonly readiness: ReadinessLike
+  /**
+   * The bound of a tenant.
+   *
+   * It is applied once the tenant of the request is known, and it
+   * answers `429 TOO_MANY_REQUESTS` to a tenant that holds its whole
+   * room.
+   */
+  readonly limiter: TenantLimiter
   /** The version of the service, as the release that built it. */
   readonly serviceVersion: string
   /** The version of the manifest of the deployment. */
@@ -181,6 +190,11 @@ export function createApp(dependencies: AppDependencies): Hono<AppEnv> {
       route: normalizeRoute(c.req.path),
       error: error instanceof Error ? error.message : 'unknown error',
       stack: error instanceof Error ? (error.stack ?? '').split('\n').slice(0, 4).join(' | ') : '',
+      // The cause of the error holds the reason of the driver: it is
+      // never sent to the caller, and it is the only place where the
+      // reason of a failure of the database is written down.
+      cause:
+        error instanceof Error && error.cause instanceof Error ? error.cause.message : undefined,
     })
     const failure = new ServiceError('INTERNAL_ERROR')
     return new Response(JSON.stringify(envelopeFor(failure, requestId)), {
@@ -294,7 +308,14 @@ export function createApp(dependencies: AppDependencies): Hono<AppEnv> {
     c.set('context', context)
     c.set('gateway', identity)
     c.set('workspace', workspace)
-    await next()
+    // The room of the tenant: the bound of the listener is the bound of
+    // the machine, and this one is the bound of the tenant inside it.
+    dependencies.limiter.enter(context.tenantId)
+    try {
+      await next()
+    } finally {
+      dependencies.limiter.leave(context.tenantId)
+    }
   }
 
   const scope = '/ws/:workspaceId/v1'
@@ -427,6 +448,10 @@ export function createApp(dependencies: AppDependencies): Hono<AppEnv> {
 
   app.get(`${scope}/items/:collection/:id`, establish, async (c) => {
     const context = requireContext(c)
+    // The endpoint of a record takes no parameter of a query: a
+    // projection is the work of the list, and a parameter that is not
+    // known is refused like it is refused everywhere else.
+    readQuery(new URL(c.req.url), [])
     const result = await dependencies.records.get(context, collectionOf(c), recordId(recordOf(c)))
     return new Response(JSON.stringify({ data: result.representation }), {
       status: 200,
@@ -465,6 +490,7 @@ export function createApp(dependencies: AppDependencies): Hono<AppEnv> {
 
   app.patch(`${scope}/items/:collection/:id`, establish, async (c) => {
     const context = requireContext(c)
+    readQuery(new URL(c.req.url), [])
     const body = await readJsonBody(c, dependencies.settings.requests.maxBodyBytes)
     const result = await dependencies.records.update(context, collectionOf(c), {
       id: recordId(recordOf(c)),
@@ -483,6 +509,7 @@ export function createApp(dependencies: AppDependencies): Hono<AppEnv> {
 
   app.delete(`${scope}/items/:collection/:id`, establish, async (c) => {
     const context = requireContext(c)
+    readQuery(new URL(c.req.url), [])
     await dependencies.records.remove(context, collectionOf(c), {
       id: recordId(recordOf(c)),
       expectedEtag: c.req.header('if-match') ?? '',

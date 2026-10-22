@@ -58,6 +58,8 @@ export interface HubSettings {
   readonly timeoutMs: number
   /** The lifetime of the read only context cache, in milliseconds. */
   readonly contextCacheTtlMs: number
+  /** The maximum number of the entries of the cache of the context. */
+  readonly contextCacheMaxEntries: number
 }
 
 /** The settings of the trusted route bindings. */
@@ -100,6 +102,14 @@ export interface RequestSettings {
   readonly maxBodyBytes: number
   /** The maximum number of requests that are handled at the same time. */
   readonly maxInFlightRequests: number
+  /**
+   * The maximum number of the requests of a tenant that run at the same
+   * time.
+   *
+   * Zero disables the bound: every tenant may use the whole room of the
+   * process.
+   */
+  readonly maxInFlightRequestsPerTenant: number
   /** The budget of the drain. */
   readonly drainMs: number
 }
@@ -154,6 +164,7 @@ const EnvSchema = z.object({
   DATA_CURSOR_KEY_FILE: z.string().optional(),
 
   DATA_CONTEXT_CACHE_TTL_MS: z.coerce.number().int().min(0).max(5_000).default(0),
+  DATA_CONTEXT_CACHE_MAX_ENTRIES: z.coerce.number().int().min(1).max(1_000_000).default(4096),
   DATA_HUB_TIMEOUT_MS: z.coerce.number().int().min(1).max(60_000).default(1_000),
 
   DATA_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(100).max(600_000).default(10_000),
@@ -164,6 +175,7 @@ const EnvSchema = z.object({
 
   DATA_MAX_BODY_BYTES: z.coerce.number().int().min(1_024).max(16_777_216).default(1_048_576),
   DATA_MAX_IN_FLIGHT_REQUESTS: z.coerce.number().int().min(1).max(10_000).default(200),
+  DATA_MAX_IN_FLIGHT_REQUESTS_PER_TENANT: z.coerce.number().int().min(1).max(10_000).optional(),
   DATA_DRAIN_MS: z.coerce.number().int().min(1_000).max(300_000).default(30_000),
 
   DATA_WORKER_PRINCIPAL_ID: z.string().optional(),
@@ -372,6 +384,7 @@ export function readEnv(env: Env = process.env): RuntimeSettings {
       credential: credential!,
       timeoutMs: values.DATA_HUB_TIMEOUT_MS,
       contextCacheTtlMs: values.DATA_CONTEXT_CACHE_TTL_MS,
+      contextCacheMaxEntries: values.DATA_CONTEXT_CACHE_MAX_ENTRIES,
     },
     bindings: { file: bindingsFile ?? '', legacyIdentity: values.DATA_LEGACY_IDENTITY },
     bundles: { schemaFile: schemaFile!, policyFile: policyFile! },
@@ -384,6 +397,11 @@ export function readEnv(env: Env = process.env): RuntimeSettings {
       timeoutMs: values.DATA_REQUEST_TIMEOUT_MS,
       maxBodyBytes: values.DATA_MAX_BODY_BYTES,
       maxInFlightRequests: values.DATA_MAX_IN_FLIGHT_REQUESTS,
+      // The bound of a tenant is the bound of the process until the
+      // deployment declares another one: a deployment with one tenant
+      // gives the whole room to its tenant.
+      maxInFlightRequestsPerTenant:
+        values.DATA_MAX_IN_FLIGHT_REQUESTS_PER_TENANT ?? values.DATA_MAX_IN_FLIGHT_REQUESTS,
       drainMs: values.DATA_DRAIN_MS,
     },
     observability: {

@@ -26,6 +26,7 @@ import { PostgresCatalogStore } from '../../src/platform/postgres/catalog'
 import { ConnectionPool } from '../../src/platform/postgres/database'
 import { PostgresDataStore } from '../../src/platform/postgres/scoped'
 import { createLogger } from '../../src/observability/logger'
+import { TenantLimiter } from '../../src/runtime/limits'
 import { createMetrics } from '../../src/observability/metrics'
 import { systemClock } from '../../src/protocol/clock'
 import { SERVICE_VERSION } from '../../src/version'
@@ -94,6 +95,8 @@ export interface Harness {
   readonly hub: FakeHub
   readonly database: TestDatabase
   readonly records: RecordsService
+  /** The limiter of the tenants of the application. */
+  readonly limiter: TenantLimiter
   /** Sends a signed request to the application. */
   request: (
     path: string,
@@ -119,7 +122,9 @@ export interface Harness {
 }
 
 /** Builds the harness. */
-export async function createHarness(options: { policies?: string } = {}): Promise<Harness> {
+export async function createHarness(
+  options: { policies?: string; maxInFlightPerTenant?: number } = {}
+): Promise<Harness> {
   const database = await testDatabase()
   await database.reset()
   await database.seed([
@@ -199,6 +204,10 @@ export async function createHarness(options: { policies?: string } = {}): Promis
     },
   ]
 
+  const limiter = new TenantLimiter({
+    maxInFlightPerTenant: options.maxInFlightPerTenant ?? 0,
+  })
+
   const app = createApp({
     settings: {
       production: false,
@@ -213,6 +222,7 @@ export async function createHarness(options: { policies?: string } = {}): Promis
     metrics: createMetrics(),
     logger: createLogger({ level: 'debug' }),
     clock: systemClock,
+    limiter,
     readiness: { check: async () => ({ ready: true }) },
     serviceVersion: SERVICE_VERSION,
     schemaVersion: manifest.schemaVersion,
@@ -267,6 +277,7 @@ export async function createHarness(options: { policies?: string } = {}): Promis
     hub,
     database,
     records,
+    limiter,
     request,
     raw: async (path, options = {}) =>
       await app.request(`http://${HOST}${path}`, {

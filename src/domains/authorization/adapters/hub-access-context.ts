@@ -10,7 +10,6 @@
 import { ServiceError } from '../../../protocol/errors'
 import type { Metrics } from '../../../observability/metrics'
 import {
-  type AccessContext,
   type AccessContextClient,
   type AccessContextDiscovery,
   type AccessContextRequest,
@@ -62,7 +61,7 @@ export class HubAccessContextClient implements AccessContextClient {
   }
 
   /** Reads the context of a principal. */
-  async evaluate(request: AccessContextRequest): Promise<AccessContext> {
+  async evaluate(request: AccessContextRequest): Promise<unknown> {
     const response = await this.#request('POST', '/v1/access-context', {
       version: 1,
       subject: request.subject,
@@ -74,7 +73,8 @@ export class HubAccessContextClient implements AccessContextClient {
     if (!response.ok) {
       unavailable(`the context answered with the status ${response.status}`)
     }
-    return body as unknown as AccessContext
+    // The answer is the wire form: the domain validates it.
+    return body
   }
 
   /** Sends a request to Hub. */

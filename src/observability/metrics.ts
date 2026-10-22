@@ -167,5 +167,10 @@ export function createMetrics(): Metrics {
     { name: 'data_delivery_retries_total', kind: 'counter', help: 'The retried deliveries.' },
     { name: 'data_draining', kind: 'gauge', help: '1 when the process drains.' },
     { name: 'data_in_flight_requests', kind: 'gauge', help: 'The requests that are handled.' },
+    {
+      name: 'data_tenant_overload_total',
+      kind: 'counter',
+      help: 'The requests that were refused because their tenant held its whole room.',
+    },
   ])
 }

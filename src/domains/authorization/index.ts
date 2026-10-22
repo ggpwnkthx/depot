@@ -153,6 +153,15 @@ export interface ContextResolverOptions {
   readonly client: AccessContextClient
   /** The lifetime of the read only cache, in milliseconds. */
   readonly cacheTtlMs: number
+  /**
+   * The maximum number of the entries of the cache.
+   *
+   * The cache is bounded: it is the mitigation of the availability of
+   * Hub, and a mitigation that grows without a bound is a leak. The
+   * default is a bound that holds the contexts of a few thousand
+   * principals.
+   */
+  readonly cacheMaxEntries?: number
   /** The scope of the service credential, part of the key of the cache. */
   readonly credentialScope: string
   readonly clock: Clock
@@ -161,6 +170,16 @@ export interface ContextResolverOptions {
   /** The metrics of the process. */
   readonly metrics?: Metrics
 }
+
+/**
+ * The default number of the entries of the cache of the context.
+ *
+ * Every entry holds the keys of the permissions of a principal, and the
+ * keys of the permissions are the ones of the deployment. A thousand
+ * entries hold a few thousand keys, and the memory of the cache stays
+ * in the order of the megabytes.
+ */
+export const DEFAULT_CONTEXT_CACHE_MAX_ENTRIES = 4096
 
 /**
  * Resolves the context of a request.
@@ -173,11 +192,54 @@ export interface ContextResolverOptions {
 export class ContextResolver {
   readonly #options: ContextResolverOptions
   readonly #cache = new Map<string, CacheEntry>()
+  readonly #cacheMaxEntries: number
   #limits: { maxPermissionKeys: number; maxLifetimeMs: number } | null
 
   constructor(options: ContextResolverOptions) {
     this.#options = options
     this.#limits = options.limits ?? null
+    this.#cacheMaxEntries = Math.max(
+      1,
+      options.cacheMaxEntries ?? DEFAULT_CONTEXT_CACHE_MAX_ENTRIES
+    )
+  }
+
+  /** The number of the entries of the cache. */
+  get cacheSize(): number {
+    return this.#cache.size
+  }
+
+  /**
+   * Removes the entries of the cache that are spent.
+   *
+   * An entry is spent when its deadline is past. The sweep runs when the
+   * cache is full and before an entry is refused for the room: the
+   * cache never refuses an entry that it could have made room for.
+   */
+  #sweep(now: number): void {
+    for (const [key, entry] of [...this.#cache]) {
+      if (entry.expiresAt <= now) this.#cache.delete(key)
+    }
+  }
+
+  /**
+   * Puts an entry in the cache.
+   *
+   * The cache is bounded: the least recently used entry leaves when the
+   * cache is full. The map keeps the order of the insertion, and the
+   * entry that is read is put at the end again: the first key of the
+   * map is the least recently used one.
+   */
+  #store(key: string, entry: CacheEntry): void {
+    const now = this.#options.clock.monotonic()
+    this.#sweep(now)
+    this.#cache.delete(key)
+    this.#cache.set(key, entry)
+    while (this.#cache.size > this.#cacheMaxEntries) {
+      const oldest = this.#cache.keys().next()
+      if (oldest.done) break
+      this.#cache.delete(oldest.value)
+    }
   }
 
   /** The limits of the contract, when they are known. */
@@ -233,6 +295,11 @@ export class ContextResolver {
       const entry = this.#cache.get(key)
       if (entry && entry.expiresAt > this.#options.clock.monotonic()) {
         this.#options.metrics?.increment('data_context_cache_hits_total')
+        // The entry that is read is the most recently used one: it goes
+        // to the end of the map, and it is the first one that leaves
+        // when the cache is full.
+        this.#cache.delete(key)
+        this.#cache.set(key, entry)
         return this.#toResolved(entry, options)
       }
       this.#cache.delete(key)
@@ -249,7 +316,7 @@ export class ContextResolver {
     const expiresAt = Math.min(deadline, this.#options.clock.monotonic() + this.#options.cacheTtlMs)
     const entry: CacheEntry = { context, deadline, expiresAt }
     if (!options.fresh && this.#options.cacheTtlMs > 0) {
-      this.#cache.set(key, entry)
+      this.#store(key, entry)
     }
     return this.#toResolved(entry, options)
   }

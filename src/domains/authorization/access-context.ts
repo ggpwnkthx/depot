@@ -66,8 +66,15 @@ export interface AccessContextDiscovery {
 export interface AccessContextClient {
   /** Reads the discovery of the contract. */
   discover: () => Promise<AccessContextDiscovery>
-  /** Reads the context of a principal. */
-  evaluate: (request: AccessContextRequest) => Promise<AccessContext>
+  /**
+   * Reads the context of a principal.
+   *
+   * The answer is the wire form and it is not trusted: the times of
+   * the answer are the strings of the wire, and the domain validates
+   * the answer before it uses it. The client never returns a context
+   * that it did not read.
+   */
+  evaluate: (request: AccessContextRequest) => Promise<unknown>
 }
 
 /** Reports whether a value is an object and not an array. */

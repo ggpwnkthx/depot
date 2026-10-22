@@ -32,6 +32,7 @@ import { ConnectionPool } from '../platform/postgres/database'
 import { loadMigrations } from '../platform/postgres/migrations'
 import { PostgresDataStore } from '../platform/postgres/scoped'
 import { type Env, type RuntimeSettings, readEnv } from './config'
+import { TenantLimiter } from './limits'
 import { loadIdentityVerification } from './identity-keys'
 import { Readiness } from './readiness'
 import { articleProjectionSubscriber } from './subscribers'
@@ -150,6 +151,7 @@ export async function createRuntime(options: CompositionOptions = {}): Promise<R
   const resolver = new ContextResolver({
     client: hubClient,
     cacheTtlMs: settings.hub.contextCacheTtlMs,
+    cacheMaxEntries: settings.hub.contextCacheMaxEntries,
     credentialScope: settings.hub.credential.slice(0, 8),
     clock: systemClock,
     metrics,
@@ -237,6 +239,11 @@ export async function createRuntime(options: CompositionOptions = {}): Promise<R
     subscriberCount: boundSubscribers.length,
   })
 
+  const limiter = new TenantLimiter({
+    maxInFlightPerTenant: settings.requests.maxInFlightRequestsPerTenant,
+    metrics,
+  })
+
   const app = createApp({
     settings: {
       production: settings.production,
@@ -252,6 +259,7 @@ export async function createRuntime(options: CompositionOptions = {}): Promise<R
     logger,
     clock: systemClock,
     readiness,
+    limiter,
     serviceVersion: SERVICE_VERSION,
     schemaVersion: manifest.schemaVersion,
   })
