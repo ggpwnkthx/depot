@@ -6,7 +6,7 @@
  * tarball of the release of the repository, and it is installed from
  * there:
  *
- *   bun add https://github.com/ggpwnkthx/depot/releases/download/v0.1.0/data-backend-client-0.1.0.tgz
+ *   bun add https://github.com/ggpwnkthx/depot/releases/download/v0.2.0/data-backend-client-0.2.0.tgz
  *
  * The check proves that the artifact that the release publishes is
  * installable and usable outside of this repository: it packs the client

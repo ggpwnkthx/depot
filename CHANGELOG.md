@@ -7,7 +7,22 @@ grouped by what they change for a client.
 A version that changes what a client depends on is a major version. The
 rules of the change are in [`docs/contract.md`](docs/contract.md).
 
-## Unreleased
+The releases that are published are in the [releases of the
+repository](https://github.com/ggpwnkthx/depot/releases).
+
+## 0.2.0 — the public key of the identity of the gateway (2026-10-22)
+
+The gateway signs the identity of a request with the private key of its
+deployment, and the backend verifies it with the public one: a backend
+that verifies an identity cannot mint one. The bindings of the gateway
+name the verification of their own signatures, and the baseline of the
+integration is one manifest.
+
+**This release changes the configuration of a deployment.** A deployment
+that keeps the file of the bindings of the version 1 keeps working: it
+is read as the legacy mode it is. A deployment that moves to the public
+key writes the file of the version 2 and gives the gateway the private
+key of the pair; the steps are in [the README](../README.md).
 
 ### Changed
 
@@ -44,9 +59,6 @@ rules of the change are in [`docs/contract.md`](docs/contract.md).
 - The signature of the identity has to be **detached**: a signature that
   carries its payload is refused. It was read as the format of the
   gateway and it is not.
-
-The releases that are published are in the [releases of the
-repository](https://github.com/ggpwnkthx/depot/releases).
 
 ## 0.1.0 — the first release (2026-10-22)
 

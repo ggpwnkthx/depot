@@ -6,7 +6,7 @@ every requirement of the specification to the code, to the check that
 proves it and to the command that runs the check.
 
 **The status of the release:** version 0.1 is implemented and published
-as `0.1.0`. It is a pre-production release: it has never run outside
+as `0.2.0`. It is a pre-production release: it has never run outside
 its own harness. The one dependency that the release carries is the
 extension of the hub, which is upstream since `4cedcfc` and which has
 to be deployed with the hub. The change lives in the repository of the

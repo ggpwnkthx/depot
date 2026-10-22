@@ -19,7 +19,7 @@ studio is one of its clients, like any other client.
 
 ## The status of the release
 
-**Version 0.1.0 is published, and it is a pre-production release.** It is
+**Version 0.2.0 is published, and it is a pre-production release.** It is
 implemented, it passes its own gates, and the compatibility harness runs
 it against the real gateway and the real hub — but it has never run
 outside its own harness. It has no production history, no external user,
@@ -33,19 +33,19 @@ The release carries the service in three forms:
 
 | What | Where |
 | --- | --- |
-| The image | `ghcr.io/ggpwnkthx/depot:0.1.0` |
-| The standalone binaries | The assets of the [release `v0.1.0`](https://github.com/ggpwnkthx/depot/releases/tag/v0.1.0) |
-| The typed client | `data-backend-client-0.1.0.tgz`, an asset of the same release |
+| The image | `ghcr.io/ggpwnkthx/depot:0.2.0` |
+| The standalone binaries | The assets of the [release `v0.2.0`](https://github.com/ggpwnkthx/depot/releases/tag/v0.2.0) |
+| The typed client | `data-backend-client-0.2.0.tgz`, an asset of the same release |
 
 The client is not published on a registry: it is downloaded from the
 release of the repository.
 
 ```bash
 # The image of the service.
-docker pull ghcr.io/ggpwnkthx/depot:0.1.0
+docker pull ghcr.io/ggpwnkthx/depot:0.2.0
 
 # The typed client.
-bun add https://github.com/ggpwnkthx/depot/releases/download/v0.1.0/data-backend-client-0.1.0.tgz
+bun add https://github.com/ggpwnkthx/depot/releases/download/v0.2.0/data-backend-client-0.2.0.tgz
 ```
 
 The root of the repository and the client are two different packages:
