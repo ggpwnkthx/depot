@@ -12,6 +12,7 @@
 
 import { readFileSync } from 'node:fs'
 import { z } from 'zod'
+import { DEFAULT_LEGACY_IDENTITY_MODE, type LegacyIdentityMode } from '../domains/gateway-context'
 
 /** The environment the process runs in. */
 export type Environment = 'development' | 'production'
@@ -63,6 +64,14 @@ export interface HubSettings {
 export interface BindingSettings {
   /** The file that holds the bindings. */
   readonly file: string
+  /**
+   * What the service does with the legacy verification of the identity.
+   *
+   * The legacy format is symmetric: the backend holds the derived
+   * secret of the gateway. It is a migration path, and it is removed
+   * in the version `2.0.0` of the service.
+   */
+  readonly legacyIdentity: LegacyIdentityMode
 }
 
 /** The settings of the bundles of the deployment. */
@@ -137,6 +146,7 @@ const EnvSchema = z.object({
   DATA_DELIVERY_DATABASE_URL: z.string().optional(),
 
   DATA_SHUTTLE_BINDINGS_FILE: z.string().optional(),
+  DATA_LEGACY_IDENTITY: z.enum(['refuse', 'warn', 'allow']).default(DEFAULT_LEGACY_IDENTITY_MODE),
   DATA_SCHEMA_BUNDLE_FILE: z.string().optional(),
   DATA_POLICY_BUNDLE_FILE: z.string().optional(),
   DATA_HUB_URL: z.string().optional(),
@@ -363,7 +373,7 @@ export function readEnv(env: Env = process.env): RuntimeSettings {
       timeoutMs: values.DATA_HUB_TIMEOUT_MS,
       contextCacheTtlMs: values.DATA_CONTEXT_CACHE_TTL_MS,
     },
-    bindings: { file: bindingsFile ?? '' },
+    bindings: { file: bindingsFile ?? '', legacyIdentity: values.DATA_LEGACY_IDENTITY },
     bundles: { schemaFile: schemaFile!, policyFile: policyFile! },
     worker: {
       principalId: workerPrincipal ?? '',

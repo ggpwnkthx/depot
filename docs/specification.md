@@ -104,7 +104,7 @@ the policies MUST NOT depend on them.
 
 | Capability | The required behavior |
 | --- | --- |
-| The gateway | The verification of the Shuttle identity of the version `v5` with the public key of the gateway, and the mapping of the verified requests to the trusted route bindings. The legacy format `v4` is a migration path and it is never the default. |
+| The gateway | The verification of the Shuttle identity of the version `v5` with the public key of the gateway, and the mapping of the verified requests to the trusted route bindings. The legacy format `v4` is a migration path: the deployment that still uses it declares it with `DATA_LEGACY_IDENTITY`, and the service refuses it by default. |
 | Hub | The current and authoritative access context, through the contract of section 5. |
 | The workspaces | The ownership of a workspace and its enabled or disabled state. |
 | The collections | The declarative manifests of the collections, backed by the reviewed SQL migrations. |
@@ -244,7 +244,10 @@ backend verifies the original signed bytes before it uses the
 normalized values of the routing.
 
 The file of the version 1 held one derived identity key per binding. It
-is still read, as the legacy mode it is.
+is read as the legacy mode it is, and the deployment that reads it
+declares it with `DATA_LEGACY_IDENTITY`: the default of the service is
+to refuse the legacy format, and the legacy format is removed in the
+version `2.0.0`.
 
 Shuttle does not forward a signed `routeId` or a tenant identifier.
 The backend MUST derive the route from the matching binding. It MUST
@@ -292,7 +295,8 @@ of the sessions of the gateway, and it is a signing capable secret that
 belongs only inside the boundary of the gateway. It is a migration path:
 a deployment that configures it is a deployment whose upstream can mint
 identities, and the replacement of the key is a coordinated operation
-of the deployment.
+of the deployment. The service refuses it by default, and it is removed
+in the version `2.0.0`.
 
 The signature binds the target of the request and the identity. It does
 not bind the body, and it provides no timestamp and no nonce. The

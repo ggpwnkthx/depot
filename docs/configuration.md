@@ -40,6 +40,7 @@ delivery pools.
 | Variable | Default | What it is |
 | --- | --- | --- |
 | `DATA_SHUTTLE_BINDINGS_FILE` | required for an api | The routes the deployment accepts, and the verification of their identities. |
+| `DATA_LEGACY_IDENTITY` | `refuse` | What the service does with the legacy verification of the identity: `refuse`, `warn` or `allow`. The legacy format is symmetric: the backend holds the derived secret of the gateway and it can sign an identity with it. The version `1.0.0` refuses it, and it is removed in the version `2.0.0`. |
 | `DATA_SCHEMA_BUNDLE_FILE` | required | The manifests of the collections. |
 | `DATA_POLICY_BUNDLE_FILE` | required | The bundle of the policies. |
 | `DATA_CURSOR_KEY_FILE` | required | The key that signs the cursors of the pages. At least 32 bytes, and it is not a key of the gateway. |

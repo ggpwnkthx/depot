@@ -18,7 +18,7 @@ import { ContextResolver } from '../domains/authorization'
 import { parsePolicyBundle } from '../domains/authorization'
 import { HubAccessContextClient } from '../domains/authorization/adapters/hub-access-context'
 import { WorkspaceCatalogProvider } from '../domains/catalog'
-import { type ResolvedBinding, parseBindingsFile } from '../domains/gateway-context'
+import { type ResolvedBinding, legacyBindings, parseBindingsFile } from '../domains/gateway-context'
 import { RecordsService } from '../domains/records'
 import { parseManifestBundle } from '../domains/schema'
 import {
@@ -85,7 +85,19 @@ export async function createRuntime(options: CompositionOptions = {}): Promise<R
   const bindings: ResolvedBinding[] = []
   if (settings.bindings.file) {
     const raw = await readFile(settings.bindings.file, 'utf8')
-    for (const binding of parseBindingsFile(raw)) {
+    const parsed = parseBindingsFile(raw, settings.bindings.legacyIdentity)
+    // A deployment that still uses the symmetric verification holds the
+    // derived secret of the gateway: the backend can sign an identity
+    // with it. The format is a migration path, and it is removed in the
+    // version 2.0.0 of the service.
+    const legacy = legacyBindings(parsed)
+    if (legacy.length > 0 && settings.bindings.legacyIdentity === 'warn') {
+      logger.warn('the deployment verifies the identity of the gateway with the legacy format', {
+        routes: legacy.map((binding) => binding.id).join(', '),
+        removal: '2.0.0',
+      })
+    }
+    for (const binding of parsed) {
       bindings.push({
         binding,
         verification: await loadIdentityVerification(binding.identity),

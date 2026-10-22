@@ -3,6 +3,7 @@ import { base64url, importPKCS8, importSPKI } from 'jose'
 import { generateKeyPairSync } from 'node:crypto'
 import {
   canonicalIdentityPayload,
+  legacyBindings,
   matchPattern,
   parseBindingsFile,
   verifyGatewayRequest,
@@ -389,6 +390,43 @@ describe('the file of the bindings', () => {
       algorithm: 'ES256',
       keyFile: '/run/secrets/identity.pem',
     })
+  })
+
+  test('it refuses the legacy format of the file', () => {
+    const legacy = {
+      id: 'data-api',
+      host: 'api.example.test',
+      upstreamPathPattern: '/ws/{workspaceId}/v1/*',
+      routeId: 'data-api',
+      identityKeyFile: '/run/secrets/identity.key',
+    }
+    expect(() =>
+      parseBindingsFile(JSON.stringify({ version: 1, bindings: [legacy] }), 'refuse')
+    ).toThrow(/legacy/)
+    expect(
+      parseBindingsFile(JSON.stringify({ version: 1, bindings: [legacy] }), 'allow')
+    ).toHaveLength(1)
+  })
+
+  test('it refuses the legacy verification of a route', () => {
+    const legacy = {
+      id: 'data-api',
+      host: 'api.example.test',
+      upstreamPathPattern: '/ws/{workspaceId}/v1/*',
+      routeId: 'data-api',
+      identity: { version: 'v4', algorithm: 'HS256', identityKeyFile: '/run/secrets/identity.key' },
+    }
+    expect(() =>
+      parseBindingsFile(JSON.stringify({ version: 2, bindings: [legacy] }), 'refuse')
+    ).toThrow(/legacy/)
+    const allowed = parseBindingsFile(JSON.stringify({ version: 2, bindings: [legacy] }), 'warn')
+    expect(allowed).toHaveLength(1)
+    expect(legacyBindings(allowed)).toHaveLength(1)
+  })
+
+  test('it does not name the legacy routes of a current deployment', () => {
+    const bindings = parseBindingsFile(JSON.stringify({ version: 2, bindings: [binding] }))
+    expect(legacyBindings(bindings)).toHaveLength(0)
   })
 
   test('it refuses an unknown property', () => {

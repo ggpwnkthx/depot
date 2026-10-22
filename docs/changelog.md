@@ -43,6 +43,22 @@ the API.
   step of the continuous integration, with the seeds of the other
   generated checks.
 
+### Deprecated
+
+- **The legacy verification of the identity of the gateway.** The
+  symmetric format `v4` is a signing capable secret of the gateway, and
+  a deployment that holds it holds the power to mint an identity. The
+  new variable `DATA_LEGACY_IDENTITY` decides what the service does
+  with it: `refuse` (the default of the version `1.0.0`), `warn` or
+  `allow`. The format is removed in the version `2.0.0`.
+
+  **This release changes the configuration of a deployment.** A
+  deployment that verifies the identity of the gateway with the public
+  key keeps working without a change. A deployment that still uses the
+  legacy format has to declare it with `DATA_LEGACY_IDENTITY=allow`, and
+  it has to move to the public key of the gateway: the steps are in
+  [the getting started](getting-started.md).
+
 ## 0.2.0 — the public key of the identity of the gateway (2026-10-22)
 
 The gateway signs the identity of a request with the private key of its

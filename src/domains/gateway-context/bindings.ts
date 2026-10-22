@@ -234,13 +234,45 @@ function parseIdentityConfig(raw: unknown, where: string): IdentityVerificationC
 }
 
 /**
+ * The modes of the legacy identity of the gateway.
+ *
+ * The legacy format of the identity is the symmetric one: the backend
+ * holds the derived secret of the gateway and it signs and verifies
+ * with the same key. It is a migration path, and it is removed in the
+ * version `2.0.0` of the service.
+ */
+export type LegacyIdentityMode = 'refuse' | 'warn' | 'allow'
+
+/** The mode of the legacy identity that a deployment may choose. */
+export const LEGACY_IDENTITY_MODES: readonly LegacyIdentityMode[] = ['refuse', 'warn', 'allow']
+
+/**
+ * The default of the mode of the legacy identity.
+ *
+ * The legacy format is symmetric: the backend holds the derived secret
+ * of the gateway and it can sign an identity with it. The version
+ * `1.0.0` of the service refuses it, and a deployment that still needs
+ * it says so with `DATA_LEGACY_IDENTITY`.
+ */
+export const DEFAULT_LEGACY_IDENTITY_MODE: LegacyIdentityMode = 'refuse'
+
+/**
  * Parses and validates the file of the bindings.
  *
  * The file is rejected as a whole when anything is wrong: a deployment
  * that accepts half of its bindings is a deployment nobody can reason
  * about.
+ *
+ * The mode of the legacy identity decides what happens to a file that
+ * names the symmetric verification: the file of the version `1` and the
+ * routes of the version `v4` are the migration path of the platform,
+ * and a deployment that still uses them says so with
+ * `DATA_LEGACY_IDENTITY`.
  */
-export function parseBindingsFile(raw: string): RouteBinding[] {
+export function parseBindingsFile(
+  raw: string,
+  legacyMode: LegacyIdentityMode = 'allow'
+): RouteBinding[] {
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)
@@ -260,6 +292,14 @@ export function parseBindingsFile(raw: string): RouteBinding[] {
   if (file.version !== BINDING_FILE_VERSION && file.version !== LEGACY_BINDING_FILE_VERSION) {
     throw new BindingConfigError(
       `the file of the bindings must have the version ${BINDING_FILE_VERSION}`
+    )
+  }
+  if (legacyMode === 'refuse' && file.version === LEGACY_BINDING_FILE_VERSION) {
+    throw new BindingConfigError(
+      'the file of the bindings is the version 1 and it is the legacy format: ' +
+        'the identity of the gateway is verified with the public key of the gateway, ' +
+        'and the file of the version 2 names it. The legacy format is refused: ' +
+        'set DATA_LEGACY_IDENTITY to "allow" to keep it, and know that it is removed in 2.0.0'
     )
   }
   if (!Array.isArray(file.bindings)) {
@@ -319,6 +359,15 @@ export function parseBindingsFile(raw: string): RouteBinding[] {
     const identity = legacy
       ? parseLegacyIdentityConfig(record.identityKeyFile, where)
       : parseIdentityConfig(record.identity, where)
+    if (legacyMode === 'refuse' && identity.version === 'v4') {
+      throw new BindingConfigError(
+        `${where}: the route verifies with the symmetric identity of the version "v4", ` +
+          'and it is the legacy format: the identity of the gateway is verified with the ' +
+          'public key of the gateway, and the route names the version "v5". The legacy ' +
+          'format is refused: set DATA_LEGACY_IDENTITY to "allow" to keep it, and know ' +
+          'that it is removed in 2.0.0'
+      )
+    }
     const expectedTenantId = record.expectedTenantId
     if (expectedTenantId !== undefined) {
       if (typeof expectedTenantId !== 'string' || !isUuid(expectedTenantId)) {
@@ -351,6 +400,17 @@ function parseLegacyIdentityConfig(raw: unknown, where: string): IdentityVerific
     throw new BindingConfigError(`${where}: the identity key file is required`)
   }
   return { version: 'v4', algorithm: 'HS256', keyFile: raw }
+}
+
+/**
+ * The bindings that use the legacy verification.
+ *
+ * A deployment that still uses them holds the derived secret of the
+ * gateway: the backend can sign an identity with it, and the format is
+ * removed in the version `2.0.0` of the service.
+ */
+export function legacyBindings(bindings: readonly RouteBinding[]): RouteBinding[] {
+  return bindings.filter((binding) => binding.identity.version === 'v4')
 }
 
 /**
