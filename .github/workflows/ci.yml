@@ -61,6 +61,7 @@ jobs:
           for seed in 1 2 3 4 5 6 7 8; do
             FUZZ_SEED=$seed FUZZ_CASES=5000 bun test test/unit/fuzz.test.ts
             FILTER_PROPERTY_SEED=$seed FILTER_PROPERTY_CASES=1500 FILTER_PROPERTY_ROWS=40 bun test test/integration/filter.property.test.ts
+            WRITE_GUARD_SEED=$seed WRITE_GUARD_CASES=40 WRITE_GUARD_ROWS=6 bun test test/integration/write-guard.test.ts
           done
       - name: the contract of the api
         run: bun test test/contract

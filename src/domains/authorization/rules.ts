@@ -72,6 +72,22 @@ export function filterSortIntersection(policies: readonly Policy[]): string[] {
   return [...(intersection ?? [])].sort()
 }
 
+/**
+ * The policies that may authorize a write.
+ *
+ * A policy authorizes a write only when it grants every field the
+ * client writes. The candidates of a write are the policies that pass
+ * that test, and the composition of the rules and the guard of the
+ * statement use the same list: a policy that does not grant the fields
+ * of the write never authorizes it, not even through its predicates.
+ */
+export function writeCandidates(
+  policies: readonly Policy[],
+  writtenFields: readonly string[]
+): Policy[] {
+  return policies.filter((policy) => writtenFields.every((field) => policy.fields.includes(field)))
+}
+
 /** The request of a write. */
 export interface WriteRequest {
   /** The action of the write. */
@@ -114,9 +130,7 @@ export function selectWritePolicy(
 ): WriteDecision {
   if (policies.length === 0) return { allowed: false, reason: 'no_permission' }
   let sawCandidate = false
-  for (const policy of policies) {
-    const coversFields = request.writtenFields.every((field) => policy.fields.includes(field))
-    if (!coversFields) continue
+  for (const policy of writeCandidates(policies, request.writtenFields)) {
     sawCandidate = true
     if (request.action !== 'create' && request.currentRow) {
       if (!evaluateFilter(policy.where, request.currentRow, request.context)) continue

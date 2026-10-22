@@ -80,6 +80,7 @@ export {
   filterSortIntersection,
   readableUnion,
   selectWritePolicy,
+  writeCandidates,
 } from './rules'
 
 /**

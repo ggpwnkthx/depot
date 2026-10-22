@@ -10,6 +10,39 @@ rules of the change are in [`docs/api.md`](api.md).
 The releases that are published are in the [releases of the
 repository](https://github.com/ggpwnkthx/depot/releases).
 
+## Unreleased
+
+The changes that are not published yet. They are the first step of the
+version `1.0.0`: they close the open finding of the security review
+about the predicate of a write, and they do not change the contract of
+the API.
+
+### Changed
+
+- **The predicate of a write is evaluated by the database.** The
+  statement of the write carries the `where` and the `check` of the
+  applicable policies, compiled by the same compiler as the queries.
+  The row after the change is given to the database as a common table
+  expression of bound parameters, so the check of a write is the check
+  of the row that the write produces, and not the check of a row that
+  the memory assembled. The evaluation in memory stays as the oracle of
+  the check: it refuses a write before it touches the database, and a
+  write that the statement refuses is refused.
+- **The row after the change carries the fields that the server
+  maintains.** The `updated_at`, the `updated_by` and the `version` of
+  the row that an update produces are part of the check of the
+  policies. A policy that checks them was checked against the values
+  that the row had before the change.
+
+### Added
+
+- **The differential test of the guard of a write**
+  (`test/integration/write-guard.test.ts`): it generates the policies
+  of a write, it writes the rows they are read over, and it compares
+  the evaluation in memory with the statement of the database. It is a
+  step of the continuous integration, with the seeds of the other
+  generated checks.
+
 ## 0.2.0 — the public key of the identity of the gateway (2026-10-22)
 
 The gateway signs the identity of a request with the private key of its

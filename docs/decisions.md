@@ -74,17 +74,31 @@ is inserted. The tuple is stable and it is bounded. The rank of the null
 values is part of the tuple because PostgreSQL sorts the nulls last in
 the two directions and the continuation has to agree with the order.
 
-## 5. The write is authorized by one policy, and the check is evaluated in memory
+## 5. The write is authorized by one policy, and the database evaluates its predicates
 
-The predicate of a policy is compiled to SQL for the reads and it is
-evaluated in memory for the writes. The write path holds the row, so it
-knows the values, and the two evaluations use the same rules.
+The predicate of a policy is compiled to SQL for the reads and for the
+writes. The write path holds the row, and the statement of the write
+carries the predicates of the policies: the `where` over the row before
+the change and the `check` over the row after it. The row after the
+change is given to the database as a common table expression of bound
+parameters. The evaluation in memory stays as the oracle of the check.
 
 **Why.** A write has to check the row before the change and the row
-after it, and the row after it does not exist yet. Compiling the
-predicate of the resulting row into a statement would mean a second
-statement with the same conditions in two places. The domain evaluates
-the same filter node with the same operators, so the two answers agree.
+after it, and the row after it does not exist yet. The two evaluations
+of the same rule lived in two places, and they diverged three times
+before the comparison was made the comparison of the type of the field.
+One implementation is the fix: the database evaluates the rule, with
+the compiler that the reads use, and the memory is the fast path that
+refuses a write before it touches the database. The generated check of
+the guard compares the two answers on predicates that were not written
+by hand, so a divergence is a failure of the continuous integration and
+not a surprise of a deployment.
+
+**The cost.** The statement of a write carries two images of the row:
+the row before the change and the row after it. The database does not
+resolve a common table expression in the condition of an update, so the
+condition is a subquery over the expressions. The write reads the row
+once more, and the row it reads is the row it locked.
 
 ## 6. The idempotency key is claimed with a statement that waits
 

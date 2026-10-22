@@ -798,6 +798,18 @@ An update checks the existing state and the resulting state. A caller
 cannot gain an access by changing the ownership, the scope or the
 values of a record during the update.
 
+**The predicates of a write are evaluated by the database.** The
+statement of the write carries the `where` and the `check` of the
+applicable policies, compiled by the same compiler as the queries, and
+the database evaluates them: the `where` over the row before the change
+and the `check` over the row after it. The row after the change is
+given to the database as a common table expression of bound parameters,
+so the check of a write is the check of the row that the write
+produces. The evaluation of the same predicates in memory is the oracle
+of the check and not its authority: a write that the statement refuses
+is refused, and the two evaluations are compared by a generated check
+on every predicate that was not written by hand.
+
 ### 8.4 The relations
 
 The release supports the registered references of many to one and the

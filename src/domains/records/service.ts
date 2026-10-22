@@ -24,6 +24,7 @@ import {
   parseFilter,
   readableUnion,
   selectWritePolicy,
+  writeCandidates,
 } from '../authorization'
 import type { CollectionDefinition, FieldDefinition } from '../schema'
 import {
@@ -68,6 +69,7 @@ import {
   queryFingerprint,
 } from './canonical'
 import { BodyError, validateBody } from './validation'
+import { buildCreateGuard, buildDeleteGuard, buildUpdateGuard } from './write-guard'
 import {
   EXPOSED_SERVER_FIELDS,
   type AggregateMetricColumn,
@@ -719,37 +721,36 @@ export class RecordsService {
           }
         }
 
-        const columns = Object.keys(values)
         const parameters = new Parameters()
-        const names = [
-          '"id"',
-          '"tenant_id"',
-          '"workspace_id"',
-          '"created_by"',
-          '"created_at"',
-          '"updated_by"',
-          '"updated_at"',
-          '"version"',
-          ...columns.map((name) => `"${name}"`),
-        ]
-        const placeholders = [
-          parameters.add(id, 'uuid'),
-          parameters.add(context.tenantId, 'uuid'),
-          parameters.add(context.workspaceId, 'uuid'),
-          parameters.add(context.principalId, 'uuid'),
-          parameters.add(now, 'timestamptz'),
-          parameters.add(context.principalId, 'uuid'),
-          parameters.add(now, 'timestamptz'),
-          parameters.add(1, 'integer'),
-          ...columns.map((name) =>
-            parameters.add(values[name], columnType(collection.fields[name]!))
-          ),
-        ]
+        // The guard of the write: the statement carries the predicates
+        // of the policies, and the database evaluates them over the row
+        // before the change and over the row after it.
+        const guard = buildCreateGuard({
+          collection,
+          catalogue: catalogueFor(collection),
+          policies: writeCandidates(policies, validated.fields),
+          substitutions,
+          parameters,
+          values,
+          id,
+          tenantId: context.tenantId,
+          workspaceId: context.workspaceId,
+          principalId: context.principalId,
+          now,
+        })
+        const columnList = guard.columns.map((name) => `"${name}"`).join(', ')
+        const selection = guard.columns.map((name) => `post."${name}"`).join(', ')
         try {
-          await unit.execute(
-            `insert into ${collection.table} (${names.join(', ')}) values (${placeholders.join(', ')})`,
+          const written = await unit.execute(
+            `${guard.prefix}insert into ${collection.table} (${columnList}) select ${selection} from post where (${guard.guard})`,
             parameters.values
           )
+          if (written === 0) {
+            // The guard refused the write. The statement of the database
+            // and the evaluation in memory do not agree, and the
+            // statement is the one that decides: the write is refused.
+            throw new ServiceError('FORBIDDEN')
+          }
         } catch (error) {
           if (isUniqueViolation(error)) {
             throw new ServiceError('CONFLICT')
@@ -807,7 +808,18 @@ export class RecordsService {
         if (!etagMatches(expected, etagOf({ data: representation }))) {
           throw new ServiceError('PRECONDITION_FAILED')
         }
-        const resulting: Record<string, unknown> = { ...current, ...validated.values }
+        const now = new Date(this.#options.clock.now()).toISOString()
+        // The row after the change: the fields the client writes, the
+        // fields the server maintains and the fields the row already
+        // had. It is the row that the statement of the update produces,
+        // and the check of the policies is evaluated over it.
+        const resulting: Record<string, unknown> = {
+          ...current,
+          ...validated.values,
+          updated_by: context.principalId,
+          updated_at: now,
+          version: Number(current.version ?? 1) + 1,
+        }
         const decision = selectWritePolicy(writePolicies, {
           action: 'update',
           writtenFields: validated.fields,
@@ -821,22 +833,42 @@ export class RecordsService {
         const policyId = decision.policy.id
         await this.#checkReferences(unit, context, collection, validated.values)
 
-        const now = new Date(this.#options.clock.now()).toISOString()
-        const updateParameters = new Parameters()
+        const parameters = new Parameters()
+        const scopeId = parameters.add(options.id, 'uuid')
+        const scopeTenant = parameters.add(context.tenantId, 'uuid')
+        const scopeWorkspace = parameters.add(context.workspaceId, 'uuid')
+        const scopeClause = `t."id" = ${scopeId} and t."tenant_id" = ${scopeTenant} and t."workspace_id" = ${scopeWorkspace}`
+        const guard = buildUpdateGuard({
+          collection,
+          catalogue: catalogueFor(collection),
+          policies: writeCandidates(writePolicies, validated.fields),
+          substitutions,
+          parameters,
+          written: validated.values,
+          principalId: context.principalId,
+          now,
+          scopeClause,
+        })
         const assignments = validated.fields.map(
-          (name) =>
-            `"${name}" = ${updateParameters.add(validated.values[name], columnType(collection.fields[name]!))}`
+          (name) => `"${name}" = ${guard.placeholders[name]}`
         )
-        assignments.push(`"updated_by" = ${updateParameters.add(context.principalId, 'uuid')}`)
-        assignments.push(`"updated_at" = ${updateParameters.add(now, 'timestamptz')}`)
+        assignments.push(`"updated_by" = ${guard.placeholders.updated_by}`)
+        assignments.push(`"updated_at" = ${guard.placeholders.updated_at}`)
         assignments.push('"version" = "version" + 1')
-        await unit.execute(
-          `update ${collection.table} set ${assignments.join(', ')}
-       where "id" = ${updateParameters.add(options.id, 'uuid')}
-         and "tenant_id" = ${updateParameters.add(context.tenantId, 'uuid')}
-         and "workspace_id" = ${updateParameters.add(context.workspaceId, 'uuid')}`,
-          updateParameters.values
+        const written = await unit.execute(
+          `${guard.prefix}update ${collection.table} set ${assignments.join(', ')}
+       where "id" = ${scopeId}
+         and "tenant_id" = ${scopeTenant}
+         and "workspace_id" = ${scopeWorkspace}
+         and exists (select 1 from ${guard.sources} where (${guard.guard}))`,
+          parameters.values
         )
+        if (written === 0) {
+          // The guard refused the write. The statement of the database
+          // and the evaluation in memory do not agree, and the statement
+          // is the one that decides: the write is refused.
+          throw new ServiceError('FORBIDDEN')
+        }
 
         await this.#writeAuditAndEvent(unit, context, {
           collection: collection.key,
@@ -898,10 +930,35 @@ export class RecordsService {
         }
         const policyId = decision.policy.id
         const parameters = new Parameters()
-        await unit.execute(
-          `delete from ${collection.table} where "id" = ${parameters.add(options.id, 'uuid')} and "tenant_id" = ${parameters.add(context.tenantId, 'uuid')} and "workspace_id" = ${parameters.add(context.workspaceId, 'uuid')}`,
+        const scopeId = parameters.add(options.id, 'uuid')
+        const scopeTenant = parameters.add(context.tenantId, 'uuid')
+        const scopeWorkspace = parameters.add(context.workspaceId, 'uuid')
+        const scopeClause = `t."id" = ${scopeId} and t."tenant_id" = ${scopeTenant} and t."workspace_id" = ${scopeWorkspace}`
+        // The guard of the write: the predicates of the policies are
+        // evaluated by the database, over the row that the delete
+        // removes.
+        const guard = buildDeleteGuard({
+          collection,
+          catalogue: catalogueFor(collection),
+          policies: writeCandidates(writePolicies, []),
+          substitutions,
+          parameters,
+          scopeClause,
+        })
+        const removed = await unit.execute(
+          `delete from ${collection.table} as t
+       where t."id" = ${scopeId}
+         and t."tenant_id" = ${scopeTenant}
+         and t."workspace_id" = ${scopeWorkspace}
+         and (${guard.guard})`,
           parameters.values
         )
+        if (removed === 0) {
+          // The guard refused the write. The statement of the database
+          // and the evaluation in memory do not agree, and the statement
+          // is the one that decides: the write is refused.
+          throw new ServiceError('FORBIDDEN')
+        }
         await this.#writeAuditAndEvent(unit, context, {
           collection: collection.key,
           recordId: options.id,
@@ -1521,26 +1578,6 @@ function mapAggregate(
     result.max = { ...(result.max ?? {}), [metric.field]: value }
   }
   return result
-}
-
-/** The type of a column of the database. */
-function columnType(definition: FieldDefinition): string {
-  switch (definition.type) {
-    case 'boolean':
-      return 'boolean'
-    case 'integer':
-      return 'bigint'
-    case 'decimal':
-      return 'numeric'
-    case 'uuid':
-      return 'uuid'
-    case 'timestamp':
-      return 'timestamptz'
-    case 'json':
-      return 'jsonb'
-    default:
-      return 'text'
-  }
 }
 
 /** The definition of a server maintained field. */

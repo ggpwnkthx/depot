@@ -26,7 +26,7 @@ matrix of the imports that the domains may use is there.
 | --- | --- | --- |
 | The rules of the domains | `bun test test/unit` | The evaluation of the predicates, the rules of the fields, the composition of the checks of a write, the validation of the schema, the expiry of the context, the verification of the identity, the secrets and the metrics. |
 | The contract of the API | `bun test test/contract` | The paths, the envelopes, the limits of the queries, the codes of the errors, the canonical ETags, the receipts, the aggregates, the search, the catalog and the cases of the attack. |
-| The database and the worker | `bun test test/integration` | The row level security, the transactions, the claims of the workers, the replicas, the differential test of the predicates and the plan of the search. |
+| The database and the worker | `bun test test/integration` | The row level security, the transactions, the claims of the workers, the replicas, the differential test of the predicates, the differential test of the guard of a write and the plan of the search. |
 | The boundaries | `bun test test/architecture` | The imports that are allowed, the absence of a cycle and the construction of the private adapters. |
 | The consumer of the client | `bun test packages/client/test` | The client against a mocked API. |
 | The whole repository | `bun run test:all` | Every suite above. |
@@ -42,6 +42,11 @@ Two of the suites are not ordinary tests:
   generates the predicates that were not written by hand, and it
   compares the answer of the database with the answer of the
   evaluation in memory, row by row,
+- the **differential test** of the guard of a write
+  (`test/integration/write-guard.test.ts`) generates the policies of a
+  write, it compares the evaluation in memory of their predicates with
+  the statement that the database evaluates, over the row before the
+  change and over the row after it,
 - the **fuzzing** of the trust boundary (`test/unit/fuzz.test.ts`) writes
   random filters, random json and random signatures, and it checks that
   nothing of the caller reaches a statement as an identifier, and that
