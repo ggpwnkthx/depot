@@ -8,6 +8,7 @@
  */
 
 import { Pool, type PoolClient, type PoolConfig, type QueryResultRow } from 'pg'
+import { ServiceError } from '../../protocol/errors'
 import type { Metrics } from '../../observability/metrics'
 
 /** The problem of a database that cannot be used. */
@@ -78,7 +79,9 @@ export class ConnectionPool {
       }
       return client
     } catch (error) {
-      throw new DatabaseError('the database is not available', codeOf(error))
+      // The database is not reachable: the answer of the contract is the
+      // one of the dependency, and it is not an internal error.
+      throw new ServiceError('DATABASE_UNAVAILABLE', { cause: error })
     }
   }
 

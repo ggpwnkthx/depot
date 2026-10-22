@@ -96,14 +96,24 @@ export interface CursorPayload {
 /** The reason a cursor was refused. */
 export type CursorFailure = 'INVALID_CURSOR' | 'CURSOR_STALE'
 
-/** The refusal of a cursor. */
-export class CursorError extends Error {
+/**
+ * The refusal of a cursor.
+ *
+ * It is a `ServiceError`: the two reasons of the refusal are codes of
+ * the published contract, and a cursor that is tampered with is a
+ * `400 INVALID_CURSOR` and not an internal error of the service.
+ *
+ * The reason of the refusal is the cause of the error and not its
+ * message: the answer of the service is the safe summary of the code,
+ * and the reason belongs to the log. A caller that learns *why* its
+ * cursor was refused learns something about the service that it does
+ * not need.
+ */
+export class CursorError extends ServiceError {
   override readonly name = 'CursorError'
-  readonly code: CursorFailure
 
   constructor(code: CursorFailure, message: string) {
-    super(message)
-    this.code = code
+    super(code, { cause: new Error(message) })
   }
 }
 

@@ -17,6 +17,7 @@ import { ServiceError } from '../../protocol/errors'
 import type { Metrics } from '../../observability/metrics'
 import type { DataStore, Scope, TransactionOptions, UnitOfWork } from '../../domains/records'
 import { type ConnectionPool, DatabaseError, codeOf } from './database'
+import { breaksConnection, serviceErrorFor } from './errors'
 
 /** The settings that carry the scope of a statement. */
 export const SCOPE_SETTINGS = {
@@ -44,7 +45,7 @@ class ScopedUnit implements UnitOfWork {
       return result.rows as T[]
     } catch (error) {
       this.#onError(error)
-      throw error
+      throw serviceErrorFor(error) ?? error
     }
   }
 
@@ -62,7 +63,7 @@ class ScopedUnit implements UnitOfWork {
       return result.rowCount ?? 0
     } catch (error) {
       this.#onError(error)
-      throw error
+      throw serviceErrorFor(error) ?? error
     }
   }
 }
@@ -110,8 +111,12 @@ export class PostgresDataStore implements DataStore {
   ): Promise<T> {
     const client = await this.#pool.acquire()
     let broken = false
-    const unit = new ScopedUnit(client, () => {
-      broken = true
+    const unit = new ScopedUnit(client, (error) => {
+      // A statement that failed does not break the connection: the
+      // transaction is rolled back and the session is clean. Only a
+      // failure of the connection itself does, and only then the
+      // connection may not go back to the pool.
+      if (breaksConnection(error)) broken = true
     })
     const timeoutMs = Math.min(
       options.timeoutMs ?? this.#transactionTimeoutMs,
@@ -119,12 +124,14 @@ export class PostgresDataStore implements DataStore {
     )
     let timer: ReturnType<typeof setTimeout> | undefined
     let expired = false
+    let released = false
     const expire = (): void => {
       // The transaction is abandoned: the connection is destroyed, so the
       // server rolls the transaction back and the connection never
       // returns to the pool with an unknown state.
       expired = true
       broken = true
+      released = true
       try {
         client.release(true)
       } catch {
@@ -167,19 +174,42 @@ export class PostgresDataStore implements DataStore {
       if (expired) {
         throw new ServiceError('DEADLINE_EXCEEDED')
       }
+      // A failure of the driver is a code of the contract and not an
+      // internal error: a lock that was not granted, a constraint that
+      // was violated and a budget that was spent are the answers the
+      // contract publishes, and a caller switches on the code.
+      const translated = serviceErrorFor(error)
+      if (translated) {
+        throw translated
+      }
       if (broken) {
-        throw new DatabaseError(
-          `the transaction could not be completed: ${
-            error instanceof Error ? error.message : 'unknown error'
-          }`,
-          codeOf(error)
-        )
+        // The connection is lost: the database is not available, and the
+        // answer of the contract is the one of the dependency.
+        throw new ServiceError('DATABASE_UNAVAILABLE', {
+          cause: new DatabaseError(
+            `the transaction could not be completed: ${
+              error instanceof Error ? error.message : 'unknown error'
+            }`,
+            codeOf(error)
+          ),
+        })
       }
       throw error
     } finally {
       if (timer) clearTimeout(timer)
-      if (!broken) {
-        client.release()
+      if (!released) {
+        if (!broken) {
+          client.release()
+        } else {
+          // The connection is not usable: it is destroyed and not
+          // returned to the pool, so the pool never hands a broken
+          // session to the next request.
+          try {
+            client.release(true)
+          } catch {
+            // The connection is already gone.
+          }
+        }
       }
     }
   }

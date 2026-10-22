@@ -112,7 +112,14 @@ export interface ErrorDetail {
  * text, a name of a constraint, a reason of Hub or a credential.
  */
 export class ServiceError extends Error {
-  override readonly name = 'ServiceError'
+  /**
+   * The name of the error.
+   *
+   * It is a `string` and not a literal: a subclass of the error — the
+   * refusal of a cursor, for example — names itself, and the log of the
+   * service reads that name.
+   */
+  override readonly name: string = 'ServiceError'
   /** The code of the error. */
   readonly code: ErrorCode
   /** The status the error answers with. */
@@ -128,9 +135,16 @@ export class ServiceError extends Error {
       message?: string
       details?: readonly ErrorDetail[]
       headers?: Record<string, string>
+      /**
+       * The failure underneath.
+       *
+       * The cause is never sent to the caller: it holds the text of a
+       * statement or the reason of a driver, and it is for the log.
+       */
+      cause?: unknown
     } = {}
   ) {
-    super(options.message ?? ERROR_MESSAGE[code])
+    super(options.message ?? ERROR_MESSAGE[code], { cause: options.cause })
     this.code = code
     this.status = ERROR_STATUS[code]
     this.details = options.details ?? []
@@ -145,6 +159,7 @@ export function fail(
     message?: string
     details?: readonly ErrorDetail[]
     headers?: Record<string, string>
+    cause?: unknown
   } = {}
 ): ServiceError {
   return new ServiceError(code, options)
