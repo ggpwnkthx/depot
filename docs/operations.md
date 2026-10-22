@@ -4,7 +4,7 @@
 
 | Endpoint | Contract |
 | --- | --- |
-| `GET /healthz` | `200` while the process is alive. It calls no dependency. |
+| `GET /healthz` | `200` while the process is alive. It calls no dependency. The answer carries the version of the service (`version`) and the version of the manifest of the deployment (`schemaVersion`). |
 | `GET /readyz` | `200` only when the configuration, the schema, the privileges of the role and the discovery of the hub are in order. `503` with a safe reason otherwise. |
 | `GET /metrics` | The metrics of the service. `404` when the endpoint is disabled, `401` when the bearer token is missing or wrong. |
 

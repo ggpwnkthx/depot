@@ -5,10 +5,12 @@ This document is the trace of the implementation against the contract of
 every requirement of the specification to the code, to the check that
 proves it and to the command that runs the check.
 
-**The status of the release:** version 0.1 is implemented. The one
-dependency that the release carries is the extension of the hub, which
-is upstream since `4cedcfc` and which has to be deployed with the hub.
-The change lives in the repository of the hub.
+**The status of the release:** version 0.1 is implemented and published
+as `0.1.0`. It is a pre-production release: it has never run outside
+its own harness. The one dependency that the release carries is the
+extension of the hub, which is upstream since `4cedcfc` and which has
+to be deployed with the hub. The change lives in the repository of the
+hub.
 
 **What "checked" means.** The last column of the matrix says that a
 requirement of the specification is *checked*: a check of this
@@ -109,6 +111,8 @@ one of them has to be green before a release.
 | The depth of the chain of the events is bounded (§11.5) | `src/runtime/worker.ts` | `test/integration/worker.test.ts` | `bun test test/integration` | checked |
 | The environment is validated as a whole (§14) | `src/runtime/config.ts` | the start of the service refuses an invalid environment | `bun run start` | checked |
 | The probes answer without the authorization of a workspace (§15.1) | `src/app/app.ts`, `src/runtime/readiness.ts` | `test/contract/http.test.ts` | `bun test test/contract` | checked |
+| The health probe answers the version of the service (§15.1) | `src/app/app.ts`, `src/version.ts` | `test/contract/http.test.ts` | `bun test test/contract` | checked |
+| The token of the metrics is compared in constant time (§15.1) | `src/app/secrets.ts` | `test/unit/secrets.test.ts` | `bun test test/unit` | checked |
 | The metrics have bounded labels (§15.1) | `src/observability/metrics.ts` | the metrics of the process | `bun run start` | checked |
 | The metrics of the hub, of the cache, of the pool and of the rollbacks are recorded (§15.1) | `src/domains/authorization/adapters/hub-access-context.ts`, `src/domains/authorization/index.ts`, `src/platform/postgres/database.ts`, `src/platform/postgres/scoped.ts` | `test/unit/metrics.test.ts` | `bun test test/unit` | checked |
 | The buckets of the histograms are cumulative (§15.1) | `src/observability/metrics.ts` | `test/unit/metrics.test.ts` | `bun test test/unit` | checked |
@@ -138,12 +142,12 @@ one of them has to be green before a release.
 
 | The suite | The command | The result of the last run |
 | --- | --- | --- |
-| The rules of the domains | `bun test test/unit` | 73 passed |
-| The contract of the API | `bun test test/contract` | 74 passed |
+| The rules of the domains | `bun test test/unit` | 76 passed |
+| The contract of the API | `bun test test/contract` | 75 passed |
 | The database, the transactions and the worker | `bun test test/integration` | 44 passed |
 | The boundaries of the code | `bun test test/architecture` | 2 passed |
-| The consumer of the client | `bun test packages/client/test` | 10 passed |
-| The whole repository | `bun run test:all` | 203 passed |
+| The consumer of the client | `bun test packages/client/test` | 13 passed |
+| The whole repository | `bun run test:all` | 210 passed |
 | The gateway, the hub and the backend | `bun run test:compat` | 21 steps, passed |
 | The capacity | `bun run scripts/capacity.ts` | four scenarios, the report of `docs/capacity.md` |
 | The shape of the statements at scale | `bun run scripts/scale.ts` | the plan of a page at a million rows, and the walk of every page |

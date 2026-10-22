@@ -19,14 +19,39 @@ studio is one of its clients, like any other client.
 
 ## The status of the release
 
-**Version 0.1 is a pre-production release.** It is implemented, it passes
-its own gates, and the compatibility harness runs it against the real
-gateway and the real hub — but it has never run outside its own
-harness. It has no production history, no external user, and no review
-that was written by somebody other than the author of the code. The
-trace of the implementation says "checked" and not "proved" for the same
-reason, and the review of the security of the service, with the
-findings that are still open, is in [`docs/security.md`](docs/security.md).
+**Version 0.1.0 is published, and it is a pre-production release.** It is
+implemented, it passes its own gates, and the compatibility harness runs
+it against the real gateway and the real hub — but it has never run
+outside its own harness. It has no production history, no external user,
+and no review that was written by somebody other than the author of the
+code. The trace of the implementation says "checked" and not "proved"
+for the same reason, and the review of the security of the service,
+with the findings that are still open, is in
+[`docs/security.md`](docs/security.md).
+
+The release carries the service in three forms:
+
+| What | Where |
+| --- | --- |
+| The image | `ghcr.io/ggpwnkthx/depot:0.1.0` |
+| The standalone binaries | The assets of the [release `v0.1.0`](https://github.com/ggpwnkthx/depot/releases/tag/v0.1.0) |
+| The typed client | `data-backend-client-0.1.0.tgz`, an asset of the same release |
+
+The client is not published on a registry: it is downloaded from the
+release of the repository.
+
+```bash
+# The image of the service.
+docker pull ghcr.io/ggpwnkthx/depot:0.1.0
+
+# The typed client.
+bun add https://github.com/ggpwnkthx/depot/releases/download/v0.1.0/data-backend-client-0.1.0.tgz
+```
+
+The binaries are archives that hold the executable, the manifests of the
+collections, the policies and the migrations of the deployment, next to
+each other. The checksums of every asset are in `checksums.txt`, in the
+release itself.
 
 ## The shape of the service
 

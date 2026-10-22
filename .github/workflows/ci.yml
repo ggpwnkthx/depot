@@ -33,6 +33,17 @@ jobs:
         run: bun audit
       - name: the types
         run: bun run typecheck
+      - name: the versions of the project agree
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          client=$(node -p "require('./packages/client/package.json').version")
+          image=$(grep -E '^ARG VERSION=' Dockerfile | head -1 | cut -d= -f2)
+          if [ "$version" != "$client" ] || [ "$version" != "$image" ]; then
+            echo "the service is $version, the client is $client and the image is $image"
+            exit 1
+          fi
+          echo "the service, the client and the image are the version $version"
       - name: the types of the client are the ones of the manifest
         run: bun run scripts/generate-client.ts --check
       - name: the style

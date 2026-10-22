@@ -88,6 +88,14 @@ The client of `@data-backend/client` follows the semantic versioning:
 - a **major** changes the shape of an answer, the name of a method, or
   the meaning of an option.
 
+**The client is not published on a registry.** It is distributed as the
+tarball of the release of the repository, and the version of the tarball
+is the version of the client:
+
+```bash
+bun add https://github.com/ggpwnkthx/depot/releases/download/v0.1.0/data-backend-client-0.1.0.tgz
+```
+
 The client of a major version talks to the deployment of the same major
 version. The client of `1.x` talks to the deployment of `1.y` for every
 `y >= x`: the deployment never removes a path and never changes the
@@ -152,9 +160,9 @@ manifest is not a part of a major version of the client.
 
 | The thing | Its version | Where it is |
 | --- | --- | --- |
-| The service | `0.1.0` | The answer of `/healthz` and the `version` of the image. |
+| The service | `0.1.0` | The answer of `/healthz` (`version`), the label of the image and the version of the package. |
 | The API | `v1` | The path of every route of the data. |
-| The client | `0.1.0` | `packages/client/package.json`. |
+| The client | `0.1.0` | `packages/client/package.json` and the tarball of the release. |
 | The access context contract | `1` | The discovery of the hub. |
 | The signature of the gateway | `v4` | The header of the identity. |
 | The format of the manifest | `1` | The `version` of the manifest. |

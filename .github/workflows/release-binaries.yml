@@ -7,12 +7,16 @@ name: release-binaries
 # proves that the binary of the runner starts and serves, and it publishes
 # the binaries on the release of the tag.
 #
-#   git tag v0.1.0-alpha.1 && git push origin v0.1.0-alpha.1
+#   git tag v0.1.0 && git push origin v0.1.0
 #
 # A binary of the data backend is not only an executable: the service
 # reads the manifests of the collections, the policies and the migrations
 # of the deployment from the disk. Every archive of a release carries
 # them next to the executable.
+#
+# The release carries the typed client as well, packed as a tarball: the
+# client is not published on a registry, it is downloaded from the
+# release of the repository.
 #
 # The container image of the same release is built by the workflow of the
 # release (release.yml).
@@ -74,6 +78,23 @@ jobs:
             exit 1
           fi
           echo "the image and the package are the version $version"
+
+      # The client of the release: it is not published on a registry, so
+      # the tarball of the release is what a consumer installs.
+      - name: the client of the release
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/client"
+          (cd packages/client && bun pm pack --destination "$RUNNER_TEMP/client")
+          ls -la "$RUNNER_TEMP/client"
+          test -n "$(ls "$RUNNER_TEMP/client"/*.tgz)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: depot-client
+          path: ${{ runner.temp }}/client/*.tgz
+          if-no-files-found: error
+          retention-days: 7
 
   binaries:
     name: the binary of ${{ matrix.platform }}
@@ -324,7 +345,7 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          sha256sum depot-*.tar.gz > checksums.txt
+          sha256sum depot-*.tar.gz data-backend-client-*.tgz > checksums.txt
           cat checksums.txt
 
       - name: the notes of the release
@@ -351,6 +372,13 @@ jobs:
 
           The binaries carry the runtime of the release (Bun ${{ env.BUN_VERSION }}) and
           the version of the service (${{ needs.version.outputs.version }}).
+
+          The typed client is in the same release, packed as a tarball:
+          it is not published on a registry, it is downloaded from here.
+
+          \`\`\`bash
+          bun add https://github.com/ggpwnkthx/depot/releases/download/${{ needs.version.outputs.tag }}/data-backend-client-${{ needs.version.outputs.version }}.tgz
+          \`\`\`
 
           The checksums are in \`checksums.txt\`:
 

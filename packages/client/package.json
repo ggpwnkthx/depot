@@ -1,9 +1,15 @@
 {
   "name": "@data-backend/client",
-  "version": "0.1.0-alpha.1",
-  "private": true,
+  "version": "0.1.0",
   "type": "module",
   "description": "The typed client of the headless data backend.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ggpwnkthx/depot.git",
+    "directory": "packages/client"
+  },
+  "homepage": "https://github.com/ggpwnkthx/depot#readme",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
