@@ -42,6 +42,9 @@ the API.
   the evaluation in memory with the statement of the database. It is a
   step of the continuous integration, with the seeds of the other
   generated checks.
+- **The capacity of the release candidate of the version `1.0.0`** is
+  measured and published in [the capacity](capacity.md), with the same
+  command as the version `0.2.0`.
 
 ### Fixed
 

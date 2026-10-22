@@ -50,16 +50,20 @@ numbers of a development machine, and a deployment measures its own.
 
 ## The results
 
+The numbers below are the ones of the release candidate of the version
+`1.0.0`, measured on the machine that is described above, with the
+guarded write path of the version `1.0.0`.
+
 | Scenario | The requests | The rate | p50 | p95 | p99 | The failures |
 | --- | --- | --- | --- | --- | --- | --- |
-| Read heavy, a page of 50 | 9912 | 991/s | 15.8 ms | 21.0 ms | 24.3 ms | 0 |
-| Mixed, half of the creations | 12511 | 1251/s | 11.6 ms | 23.7 ms | 28.1 ms | 0 |
-| The concurrent updates of one record | 3126 | 313/s | 50.8 ms | 62.2 ms | 69.0 ms | 0 (357 successes, 2769 precondition failures) |
-| Hub is down | 42801 | 4280/s | 3.6 ms | 5.3 ms | 7.6 ms | 42801 answers 503 |
+| Read heavy, a page of 50 | 16855 | 1686/s | 9.3 ms | 11.6 ms | 13.4 ms | 0 |
+| Mixed, half of the creations | 20770 | 2077/s | 7.5 ms | 10.2 ms | 12.2 ms | 0 |
+| The concurrent updates of one record | 6089 | 609/s | 26.0 ms | 31.4 ms | 40.6 ms | 0 (385 successes, 5704 precondition failures) |
+| Hub is down | 62780 | 6278/s | 2.5 ms | 3.2 ms | 4.6 ms | 62780 answers 503 |
 
 What the numbers say:
 
-- **The read path holds.** A page of fifty records is read in fifteen
+- **The read path holds.** A page of fifty records is read in nine
   milliseconds at the fiftieth percentile, with the context of Hub asked
   for every time. Hub is the dependency of every request, and it is not
   on the critical path of the read of the records: the context is
@@ -78,6 +82,13 @@ What the numbers say:
   service does not queue the work, and it does not serve a context it
   cannot prove. The rate of the refusals is the rate of the failures of
   the dependency.
+
+**The numbers of the version 0.2.0** were 991/s, 1251/s, 313/s and
+4280/s, with a fiftieth percentile of 15.8 ms, 11.6 ms, 50.8 ms and
+3.6 ms. The two measurements are not comparable: they are two runs on
+a shared machine, and the numbers of a development machine are the
+numbers of that machine and of that moment. The report is a
+measurement, and not a promise.
 
 ## The shape of the statements at scale
 
