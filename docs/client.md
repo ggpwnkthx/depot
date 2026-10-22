@@ -7,9 +7,18 @@ as typed errors.
 
 ## The installation
 
-**The client is not published on a registry.** It is distributed as the
-tarball of the release of the repository, and the version of the tarball
-is the version of the client:
+**The client is published on a registry of packages**, and it is
+distributed as the tarball of the release of the repository. The
+version of the tarball is the version of the client:
+
+```bash
+npm install @data-backend/client
+# or, with bun:
+bun add @data-backend/client
+```
+
+The tarball of the release is the same package, for a deployment that
+pins a version with a url:
 
 ```bash
 bun add https://github.com/ggpwnkthx/depot/releases/download/v0.2.0/data-backend-client-0.2.0.tgz
@@ -22,6 +31,12 @@ and it is not the way to obtain the client.
 ```ts
 import { DataClient } from '@data-backend/client'
 ```
+
+The client runs with **bun** and with **node**: it is a library of the
+two runtimes, it carries its own files, and it depends on nothing. The
+check of the packaging installs the tarball in a consumer that lives
+outside of the repository and calls the API with the client, once with
+bun and once with node.
 
 The client of a major version talks to the deployment of the same major
 version. The client of `1.x` talks to the deployment of `1.y` for every

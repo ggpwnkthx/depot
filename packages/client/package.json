@@ -13,22 +13,35 @@
   "bugs": {
     "url": "https://github.com/ggpwnkthx/depot/issues"
   },
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./deployment": {
+      "types": "./dist/deployment.d.ts",
+      "import": "./dist/deployment.js",
+      "default": "./dist/deployment.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   },
   "scripts": {
     "test": "bun test test",
     "typecheck": "tsc --noEmit",
-    "build": "bun build ./src/index.ts --outdir ./dist --target bun --format esm"
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "bun run build"
   },
   "devDependencies": {
     "@types/bun": "1.4.3",
     "typescript": "5.9.3"
   },
   "files": [
-    "dist",
-    "src"
+    "dist"
   ]
 }

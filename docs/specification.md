@@ -1187,8 +1187,8 @@ The generated types of the collections are build artifacts of a version
 of the schema, and they do not replace the validation of the runtime.
 
 The client is the nested package `@data-backend/client` of this
-repository, and it is not published on a registry: it is distributed as
-the tarball of the release, whose name is
+repository. It is published on a registry of packages, and it is
+distributed as the tarball of the release, whose name is
 `data-backend-client-<version>.tgz`. The root package of the repository
 is the service itself, and installing it does not install the client.
 The release MUST publish a tarball that installs and works outside of
@@ -1196,6 +1196,10 @@ this repository, and the continuous integration MUST prove it: the
 tarball is packed with the command of the release, installed in a
 consumer that lives outside of the repository, imported through its
 public name and called.
+
+The client is a library of **bun** and of **node**: it carries its own
+files, it depends on nothing, and the check of the packaging calls the
+API with it once with each runtime.
 
 A studio consumes the same public APIs as any client. It has no
 privileged connection to the database and no shortcut to the secrets.

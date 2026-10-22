@@ -69,6 +69,8 @@ jobs:
         run: bun test test/architecture
       - name: the consumer of the client
         run: bun test packages/client/test
+      - name: the client is built
+        run: bun run build:client
       - name: the packed client works outside of the repository
         run: bun run check:client-package
       - name: the database, the transactions and the worker

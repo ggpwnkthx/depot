@@ -51,12 +51,15 @@ docker pull ghcr.io/ggpwnkthx/depot:0.2.0
 
 # The typed client.
 bun add https://github.com/ggpwnkthx/depot/releases/download/v0.2.0/data-backend-client-0.2.0.tgz
+# or, from the registry of the packages:
+bun add @data-backend/client
 ```
 
-The client is not published on a registry: it is downloaded from the
-release of the repository. The root of the repository is the **service**
-itself, and `bun add github:ggpwnkthx/depot` is not the way to obtain
-the client. The client is the nested package `@data-backend/client`.
+The client is published on a registry of packages, and it is downloaded
+from the release of the repository as well. The root of the repository
+is the **service** itself, and `bun add github:ggpwnkthx/depot` is not
+the way to obtain the client. The client is the nested package
+`@data-backend/client`, and it runs with bun and with node.
 
 ## The development machine
 

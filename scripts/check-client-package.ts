@@ -2,17 +2,21 @@
 /**
  * The check of the packaged client (spec §12).
  *
- * The typed client is not published on a registry: it is released as a
- * tarball of the release of the repository, and it is installed from
- * there:
+ * The typed client is published on a registry of packages, and it is
+ * released as a tarball of the release of the repository:
  *
  *   bun add https://github.com/ggpwnkthx/depot/releases/download/v0.2.0/data-backend-client-0.2.0.tgz
+ *   npm install @data-backend/client
  *
  * The check proves that the artifact that the release publishes is
- * installable and usable outside of this repository: it packs the client
- * with the command of the release, it installs the tarball in a
+ * installable and usable outside of this repository: it packs the
+ * client with the command of the release, it installs the tarball in a
  * consumer that lives outside of the repository, it imports the client
  * through its public name and it calls the API with it.
+ *
+ * The consumer runs with **bun** and with **node**: the client of a
+ * stable release is a library of the two runtimes, and a client that
+ * only answers to one of them is a client of one runtime.
  *
  * The command:
  *
@@ -58,7 +62,7 @@ const answer = {
 }
 
 // The transport of the consumer: the client never invents one.
-const transport = async (): Promise<Response> =>
+const transport = async () =>
   new Response(JSON.stringify(answer), {
     status: 200,
     headers: { 'content-type': 'application/json' },
@@ -97,6 +101,16 @@ function run(command: string[], cwd: string): string {
     )
   }
   return result.stdout?.toString() ?? ''
+}
+
+/** Reports whether a command is installed on the machine. */
+function hasCommand(command: string): boolean {
+  try {
+    const result = spawnSync([command, '--version'])
+    return result.exitCode === 0
+  } catch {
+    return false
+  }
 }
 
 const manifest = JSON.parse(await readFile(join(CLIENT_DIRECTORY, 'package.json'), 'utf8')) as {
@@ -140,44 +154,59 @@ try {
       2
     )}\n`
   )
-  await writeFile(join(consumer, 'index.ts'), CONSUMER)
+  await writeFile(join(consumer, 'index.mjs'), CONSUMER)
   run(['bun', 'install'], consumer)
   console.log(JSON.stringify({ level: 'info', msg: 'the tarball is installed in a consumer' }))
 
-  // 3. The call of the client, through its public name.
-  const output = run(['bun', 'run', 'index.ts'], consumer)
-  const report = JSON.parse(output.trim().split('\n').at(-1) ?? '{}') as {
-    rows?: number
-    module?: string
-    inside?: boolean
-    hoisted?: string[]
-    error?: string
-  }
-  if (report.error) {
-    throw new Error(`the consumer of the client failed: ${report.error}`)
-  }
-  if (report.rows !== 1) {
-    throw new Error('the consumer of the client did not read the row of the fixture')
-  }
-  if (!report.inside) {
-    throw new Error(
-      `the client was resolved outside of the consumer: ${report.module}. ` +
-        'The packaged client has to carry its own files.'
+  // 3. The call of the client, through its public name, with bun and
+  // with node. The client of a stable release is a library of the two
+  // runtimes.
+  for (const runtime of ['bun', 'node']) {
+    if (runtime === 'node' && !hasCommand('node')) {
+      console.log(
+        JSON.stringify({ level: 'warn', msg: 'node is not installed: the check ran with bun only' })
+      )
+      continue
+    }
+    const output =
+      runtime === 'bun'
+        ? run(['bun', 'run', 'index.mjs'], consumer)
+        : run(['node', 'index.mjs'], consumer)
+    const report = JSON.parse(output.trim().split('\n').at(-1) ?? '{}') as {
+      rows?: number
+      module?: string
+      inside?: boolean
+      hoisted?: string[]
+      error?: string
+    }
+    if (report.error) {
+      throw new Error(`the consumer of the client failed with ${runtime}: ${report.error}`)
+    }
+    if (report.rows !== 1) {
+      throw new Error(
+        `the consumer of the client did not read the row of the fixture with ${runtime}`
+      )
+    }
+    if (!report.inside) {
+      throw new Error(
+        `the client was resolved outside of the consumer with ${runtime}: ${report.module}. ` +
+          'The packaged client has to carry its own files.'
+      )
+    }
+    if ((report.hoisted ?? []).length > 0) {
+      throw new Error(
+        `the consumer relies on the dependencies of the service with ${runtime}: ${(report.hoisted ?? []).join(', ')}`
+      )
+    }
+    console.log(
+      JSON.stringify({
+        level: 'info',
+        msg: `the packed client works outside of the repository with ${runtime}`,
+        module: report.module,
+        rows: report.rows,
+      })
     )
   }
-  if ((report.hoisted ?? []).length > 0) {
-    throw new Error(
-      `the consumer relies on the dependencies of the service: ${(report.hoisted ?? []).join(', ')}`
-    )
-  }
-  console.log(
-    JSON.stringify({
-      level: 'info',
-      msg: 'the packed client works outside of the repository',
-      module: report.module,
-      rows: report.rows,
-    })
-  )
 } finally {
   await rm(workspace, { recursive: true, force: true })
 }

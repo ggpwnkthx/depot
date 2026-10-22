@@ -98,6 +98,20 @@ jobs:
       - name: the packaged client works outside of the repository
         run: bun run check:client-package
 
+      # The client of a stable release is a library of the two runtimes,
+      # and it is published on the registry of the packages. The
+      # publication is a step of its own: a release that does not carry
+      # the secret of the registry publishes the tarball of the release
+      # and nothing else.
+      - name: the client on the registry of the packages
+        if: ${{ secrets.NPM_TOKEN != '' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd packages/client
+          npm publish --access public --provenance
+
       - uses: actions/upload-artifact@v4
         with:
           name: depot-client
@@ -383,10 +397,13 @@ jobs:
           the version of the service (${{ needs.version.outputs.version }}).
 
           The typed client is in the same release, packed as a tarball:
-          it is not published on a registry, it is downloaded from here.
+          it is downloaded from here, and it is published on the registry
+          of the packages as \`@data-backend/client\`.
 
           \`\`\`bash
           bun add https://github.com/ggpwnkthx/depot/releases/download/${{ needs.version.outputs.tag }}/data-backend-client-${{ needs.version.outputs.version }}.tgz
+          # or:
+          bun add @data-backend/client
           \`\`\`
 
           The checksums are in \`checksums.txt\`:
