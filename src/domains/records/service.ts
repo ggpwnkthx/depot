@@ -19,7 +19,6 @@ import {
   type RequestContext,
   type SubstitutionContext,
   applicablePolicies,
-  evaluateFilter,
   filterSortIntersection,
   parseFilter,
   readableUnion,
@@ -803,8 +802,8 @@ export class RecordsService {
 
     return await this.#options.store.write(
       async (unit) => {
-        const current = await this.#lockRow(unit, context, collection, options.id)
-        const representation = this.#representationOf(context, collection, current, readPolicies)
+        const current = await this.#lockRow(unit, context, collection, options.id, readPolicies)
+        const representation = this.#representationOf(collection, current, readPolicies)
         if (!etagMatches(expected, etagOf({ data: representation }))) {
           throw new ServiceError('PRECONDITION_FAILED')
         }
@@ -880,8 +879,15 @@ export class RecordsService {
           causation: null,
         })
 
-        const updated = await this.#lockRow(unit, context, collection, options.id, false)
-        const newRepresentation = this.#representationOf(context, collection, updated, readPolicies)
+        const updated = await this.#lockRow(
+          unit,
+          context,
+          collection,
+          options.id,
+          readPolicies,
+          false
+        )
+        const newRepresentation = this.#representationOf(collection, updated, readPolicies)
         return {
           representation: newRepresentation,
           etag: etagOf({ data: newRepresentation }),
@@ -914,8 +920,8 @@ export class RecordsService {
 
     return await this.#options.store.write(
       async (unit) => {
-        const current = await this.#lockRow(unit, context, collection, options.id)
-        const representation = this.#representationOf(context, collection, current, readPolicies)
+        const current = await this.#lockRow(unit, context, collection, options.id, readPolicies)
+        const representation = this.#representationOf(collection, current, readPolicies)
         if (!etagMatches(expected, etagOf({ data: representation }))) {
           throw new ServiceError('PRECONDITION_FAILED')
         }
@@ -1080,20 +1086,40 @@ export class RecordsService {
     }
   }
 
-  /** The row of a record, locked for a write. */
+  /**
+   * The row of a record, locked for a write.
+   *
+   * The statement computes the flags of the policies of the read: the
+   * predicates of the policies are compiled by the same compiler as
+   * the queries, and the database evaluates them over the row that it
+   * locks. The representation of the record is built from those flags,
+   * and it is the same representation that a read of the record builds
+   * with the projection of the database.
+   */
   async #lockRow(
     unit: UnitOfWork,
     context: RequestContext,
     collection: CollectionDefinition,
     id: string,
+    policies: readonly Policy[],
     lock = true
   ): Promise<RecordRow> {
+    const catalogue = catalogueFor(collection)
+    const substitutions = this.#substitutions(context)
+    const parameters = new Parameters()
+    const idPlaceholder = parameters.add(id, 'uuid')
+    const tenantPlaceholder = parameters.add(context.tenantId, 'uuid')
+    const workspacePlaceholder = parameters.add(context.workspaceId, 'uuid')
+    const flags = policies.map(
+      (policy, index) =>
+        `(${compileInto(policy.where, parameters, { fields: catalogue, alias: 't', substitutions })}) as m${index}`
+    )
     const row = await unit.queryOne<RecordRow>(
-      `select t.* from ${collection.table} t
-       where t."id" = $1::uuid and t."tenant_id" = $2::uuid and t."workspace_id" = $3::uuid${
+      `select t.*${flags.length > 0 ? `, ${flags.join(', ')}` : ''} from ${collection.table} t
+       where t."id" = ${idPlaceholder} and t."tenant_id" = ${tenantPlaceholder} and t."workspace_id" = ${workspacePlaceholder}${
          lock ? ' for update' : ''
        }`,
-      [id, context.tenantId, context.workspaceId]
+      parameters.values
     )
     if (!row) {
       throw new ServiceError('NOT_FOUND')
@@ -1109,19 +1135,22 @@ export class RecordsService {
    * answer, and the values are normalized the way the projection of a
    * read normalizes them. The validator of a record is therefore the
    * same whether the record was read or locked.
+   *
+   * The policies that match the row are the ones that the database
+   * evaluated: the flags of the statement of the lock carry the answer
+   * of the predicates of the policies, and they are the same flags that
+   * the projection of a read computes.
    */
   #representationOf(
-    context: RequestContext,
     collection: CollectionDefinition,
     row: RecordRow,
     policies: readonly Policy[]
   ): Record<string, unknown> {
-    const substitutions = this.#substitutions(context)
-    const matching = policies.filter((policy) => evaluateFilter(policy.where, row, substitutions))
     const granted = new Set<string>()
-    for (const policy of matching) {
+    policies.forEach((policy, index) => {
+      if (row[`m${index}`] !== true) return
       for (const field of policy.fields) granted.add(field)
-    }
+    })
     const representation: Record<string, unknown> = {
       id: String(row.id),
       version: Number(row.version ?? 1),

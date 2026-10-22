@@ -42,6 +42,19 @@ is built for the page only. The two parts are the same promise — the
 value the caller may not see never leaves the database — and the second
 one is the only one that is affordable.
 
+**The write path builds the same projection.** The statement that locks
+the row of a write computes the flags of the read policies — the
+predicates of the policies, compiled by the same compiler — and the
+representation of the record is built from those flags. The validator
+of a record is therefore the same whether the record was read or
+written, and it is the database that says which policies match the row.
+
+**Why.** The representation was built in memory, over the values that
+the lock had read, and the predicates were evaluated there a second
+time. The two evaluations of the same rule were one rule in two
+places, and the validator of a record was the validator of two
+different implementations.
+
 ## 3. The order of a page is the order of the database
 
 The order of the service is the order of the nulls last, in the two

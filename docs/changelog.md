@@ -33,6 +33,12 @@ the API.
   the row that an update produces are part of the check of the
   policies. A policy that checks them was checked against the values
   that the row had before the change.
+- **The representation of a record is built by the database, in the
+  write path too.** The statement that locks the row computes the
+  flags of the read policies, and the representation of the record is
+  built from those flags. The service does not evaluate a predicate of
+  a policy in memory any more, and the validator of a record is the
+  same whether the record was read or written.
 
 ### Added
 

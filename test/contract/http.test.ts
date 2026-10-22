@@ -284,6 +284,11 @@ describe('the records', () => {
     expect(body.data.version).toBe(2)
     expect(body.data.title).toBe('After')
     expect(response.headers.get('etag')).not.toBe(etag)
+    // The validator of the record is the same whether it was read or
+    // written: the answer of the write carries the validator that the
+    // next read of the record carries.
+    const after = await harness.request(path)
+    expect(after.headers.get('etag')).toBe(response.headers.get('etag'))
   })
 
   test('an update with an old validator is refused', async () => {

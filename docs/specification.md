@@ -814,6 +814,13 @@ of the check and not its authority: a write that the statement refuses
 is refused, and the two evaluations are compared by a generated check
 on every predicate that was not written by hand.
 
+**The predicates of a read are evaluated by the database as well.** The
+statement that locks the row of a write computes the flags of the read
+policies, and the representation of the record is built from those
+flags. The validator of a record MUST be the same whether the record
+was read or written: the service MUST NOT evaluate a predicate of a
+policy in memory.
+
 ### 8.4 The relations
 
 The release supports the registered references of many to one and the
