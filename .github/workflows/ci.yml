@@ -67,6 +67,11 @@ jobs:
         run: bun test test/contract
       - name: the architecture
         run: bun test test/architecture
+      # The suites have power: the gate breaks the code on purpose and
+      # checks that the suites notice. A mutation that survives is a
+      # behaviour that nothing in the repository proves.
+      - name: the power of the suites
+        run: bun run test:mutation
       - name: the consumer of the client
         run: bun test packages/client/test
       - name: the client is built

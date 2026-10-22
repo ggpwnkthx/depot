@@ -38,6 +38,7 @@
     "check:client-package": "bun run scripts/check-client-package.ts",
     "test:all": "bun test test/unit test/contract test/integration test/architecture packages/client/test",
     "test:architecture": "bun test test/architecture",
+    "test:mutation": "bun run scripts/mutation.ts",
     "capacity": "bun run scripts/capacity.ts",
     "scale": "bun run scripts/scale.ts",
     "generate:client": "bun run scripts/generate-client.ts",

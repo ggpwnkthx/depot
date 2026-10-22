@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { base64url, importSPKI } from 'jose'
+import { generateKeyPairSync, sign as signRaw } from 'node:crypto'
 import {
   canonicalIdentityPayload,
   verifyIdentitySignature,
@@ -332,6 +333,55 @@ describe('the verification of the signature', () => {
         variant
       )
       expect(valid, `the signature "${variant}" was accepted`).toBe(false)
+    }
+  })
+
+  test('a signature that is valid and that carries another header is refused', async () => {
+    // The signature of this case is **valid** over the payload: it is
+    // signed with the private key of the pair, and the only reason of
+    // the refusal is the protected header that it carries. A test that
+    // changes the header of a signature that was signed elsewhere
+    // proves nothing: the refusal would be the one of the signature.
+    const pair = generateKeyPairSync('ec', {
+      namedCurve: 'P-256',
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+    })
+    const publicKey = await importSPKI(pair.publicKey, 'ES256')
+    const own = { version: 'v5', algorithm: 'ES256', key: publicKey } as const
+    const payload = new TextEncoder().encode(
+      canonicalIdentityPayload(entry.identity, entry.request, 'v5')
+    )
+
+    // The signature is written by hand: the library of the test refuses
+    // to sign a header that it does not know, and the header of the
+    // gateway is exactly a header that the library does not know.
+    const sign = (header: Record<string, unknown>): string => {
+      const encodedHeader = base64url.encode(new TextEncoder().encode(JSON.stringify(header)))
+      const encodedPayload = base64url.encode(payload)
+      const signature = signRaw('sha256', `${encodedHeader}.${encodedPayload}`, {
+        key: pair.privateKey,
+        dsaEncoding: 'ieee-p1363',
+      })
+      // The payload of the signature of the gateway is detached.
+      return `v5=${encodedHeader}..${base64url.encode(signature)}`
+    }
+
+    // The header of the route is the one that the gateway writes.
+    const accepted = sign({ alg: 'ES256', typ: 'shuttle-identity' })
+    expect(await verifyIdentitySignature(entry.identity, entry.request, own, accepted)).toBe(true)
+
+    const headers: Record<string, unknown>[] = [
+      { alg: 'ES256', typ: 'jwt' },
+      { alg: 'ES256' },
+      { alg: 'ES256', typ: 'shuttle-identity', crit: ['x'], x: 'y' },
+      { alg: 'ES256', typ: 'shuttle-identity', crit: ['exp'], exp: 1 },
+      { alg: 'ES256', typ: 'shuttle-identity', crit: ['b64'], b64: true },
+    ]
+    for (const header of headers) {
+      const variant = sign(header)
+      const valid = await verifyIdentitySignature(entry.identity, entry.request, own, variant)
+      expect(valid, `the header ${JSON.stringify(header)} was accepted`).toBe(false)
     }
   })
 })
