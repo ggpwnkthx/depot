@@ -10,6 +10,7 @@
 
 import { Listener } from './platform/bun/server'
 import { createRuntime } from './runtime/composition'
+import { SERVICE_VERSION } from './version'
 
 const runtime = await createRuntime()
 const listener = new Listener({
@@ -28,7 +29,7 @@ runtime.worker?.start()
 runtime.logger.info('the service is ready', {
   role: runtime.settings.role,
   port: listener.port,
-  version: '0.1.0-alpha.1',
+  version: SERVICE_VERSION,
 })
 
 let closing = false

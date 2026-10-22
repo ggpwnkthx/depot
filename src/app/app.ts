@@ -29,6 +29,7 @@ import type { RecordsService } from '../domains/records'
 import type { WorkspaceIdentity } from '../domains/workspaces'
 import { envelopeFor } from './errors'
 import { openapiDocument } from './openapi'
+import { secretsMatch } from './secrets'
 import { buildSchemaMetadata } from './schema-metadata'
 
 /** The environment of the application: the variables of the request. */
@@ -59,6 +60,9 @@ export interface AppDependencies {
   readonly logger: Logger
   readonly clock: Clock
   readonly readiness: ReadinessLike
+  /** The version of the service, as the release that built it. */
+  readonly serviceVersion: string
+  /** The version of the manifest of the deployment. */
   readonly schemaVersion: string
 }
 
@@ -209,7 +213,12 @@ export function createApp(dependencies: AppDependencies): Hono<AppEnv> {
   // The operational endpoints are not routed through the authorization of
   // a workspace.
   app.get('/healthz', (c) =>
-    c.json({ status: 'ok', service: 'data-backend', version: dependencies.schemaVersion })
+    c.json({
+      status: 'ok',
+      service: 'data-backend',
+      version: dependencies.serviceVersion,
+      schemaVersion: dependencies.schemaVersion,
+    })
   )
 
   app.get('/readyz', async (c) => {
@@ -226,7 +235,7 @@ export function createApp(dependencies: AppDependencies): Hono<AppEnv> {
       return new Response('not found', { status: 404 })
     }
     const presented = c.req.header('authorization') ?? ''
-    if (presented !== `Bearer ${token}`) {
+    if (!secretsMatch(presented, `Bearer ${token}`)) {
       return new Response('unauthorized', { status: 401 })
     }
     return new Response(dependencies.metrics.render(), {
@@ -308,7 +317,9 @@ export function createApp(dependencies: AppDependencies): Hono<AppEnv> {
   })
 
   app.get(`${scope}/openapi.json`, establish, (c) =>
-    c.json(openapiDocument(dependencies.schemaVersion), 200, { 'cache-control': 'no-store' })
+    c.json(openapiDocument(dependencies.schemaVersion, dependencies.serviceVersion), 200, {
+      'cache-control': 'no-store',
+    })
   )
 
   app.get(`${scope}/schema`, establish, (c) => {

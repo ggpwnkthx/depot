@@ -10,12 +10,16 @@
 import { ERROR_CODES } from '../protocol/errors'
 
 /** The description of the API. */
-export function openapiDocument(schemaVersion: string): Record<string, unknown> {
+export function openapiDocument(
+  schemaVersion: string,
+  serviceVersion: string
+): Record<string, unknown> {
   return {
     openapi: '3.1.0',
     info: {
       title: 'Headless Data Backend',
-      version: schemaVersion,
+      version: serviceVersion,
+      'x-schema-version': schemaVersion,
       description:
         'Permission aware data APIs behind Shuttle. The identity of the caller is carried by the gateway; the caller authenticates at Shuttle.',
     },

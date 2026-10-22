@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { SERVICE_VERSION } from '../../src/version'
 import {
   createHarness,
   OTHER_TENANT_ID,
@@ -36,6 +37,17 @@ describe('the operational endpoints', () => {
     expect(response.status).toBe(200)
     const body = await json(response)
     expect(body.status).toBe('ok')
+  })
+
+  test('the health probe answers the version of the service', async () => {
+    const response = await harness.raw('/healthz')
+    expect(response.status).toBe(200)
+    const body = await json(response)
+    // The answer of the probe carries the version of the service, not
+    // the version of the manifest of the deployment (spec §15.1).
+    expect(body.version).toBe(SERVICE_VERSION)
+    expect(body.service).toBe('data-backend')
+    expect(body.schemaVersion).toBeTruthy()
   })
 
   test('the readiness probe answers when the service is ready', async () => {
@@ -487,6 +499,7 @@ describe('the description of the API', () => {
     expect(response.status).toBe(200)
     const body = await json(response)
     expect(body.openapi).toBe('3.1.0')
+    expect(body.info.version).toBe(SERVICE_VERSION)
     expect(body.paths['/ws/{workspaceId}/v1/items/{collection}']).toBeTruthy()
   })
 })

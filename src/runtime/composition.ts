@@ -13,6 +13,7 @@ import { ServiceError } from '../protocol/errors'
 import { createLogger, type Logger } from '../observability/logger'
 import { createMetrics } from '../observability/metrics'
 import { createApp } from '../app/app'
+import { SERVICE_VERSION } from '../version'
 import { ContextResolver } from '../domains/authorization'
 import { parsePolicyBundle } from '../domains/authorization'
 import { HubAccessContextClient } from '../domains/authorization/adapters/hub-access-context'
@@ -242,6 +243,7 @@ export async function createRuntime(options: CompositionOptions = {}): Promise<R
     logger,
     clock: systemClock,
     readiness,
+    serviceVersion: SERVICE_VERSION,
     schemaVersion: manifest.schemaVersion,
   })
 

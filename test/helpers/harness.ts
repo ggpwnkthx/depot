@@ -27,6 +27,7 @@ import { PostgresDataStore } from '../../src/platform/postgres/scoped'
 import { createLogger } from '../../src/observability/logger'
 import { createMetrics } from '../../src/observability/metrics'
 import { systemClock } from '../../src/protocol/clock'
+import { SERVICE_VERSION } from '../../src/version'
 import { type FakeHub, startFakeHub } from './hub'
 import { type TestDatabase, testDatabase } from './database'
 
@@ -172,6 +173,7 @@ export async function createHarness(options: { policies?: string } = {}): Promis
     logger: createLogger({ level: 'debug' }),
     clock: systemClock,
     readiness: { check: async () => ({ ready: true }) },
+    serviceVersion: SERVICE_VERSION,
     schemaVersion: manifest.schemaVersion,
   })
 
