@@ -1,0 +1,316 @@
+name: release
+
+# The release of the image.
+#
+# The workflow runs on a tag: it checks that the tag names the version of
+# the package, it builds the image of the release, it starts it against a
+# real PostgreSQL with the roles of a deployment, it publishes it to the
+# registry and it exports it as an artifact of the run.
+#
+#   git tag v0.1.0-alpha.1 && git push origin v0.1.0-alpha.1
+#
+# The image is published with two tags: the tag of the release
+# (`v0.1.0-alpha.1`) and the version itself (`0.1.0-alpha.1`). A
+# deployment that pins a version pins the image of that release.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  # The image is published to the registry of the repository.
+  packages: write
+
+env:
+  # The version of the runtime the service is built and released with.
+  BUN_VERSION: '1.4.3'
+  # The image of the service.
+  IMAGE: 'ghcr.io/ggpwnkthx/depot'
+
+jobs:
+  image:
+    name: the image of the release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      # The outputs of this step are the tag and the version of the
+      # release. They are written by the **same** step: an output that is
+      # written by another step of the job is not readable here, the
+      # expression is empty, and the build of the image fails with an
+      # empty tag.
+      - name: the version of the release
+        id: version
+        run: |
+          expected=$(node -p "require('./package.json').version")
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$tag" != "$expected" ]; then
+            echo "the tag $GITHUB_REF_NAME does not name the version $expected of the package"
+            exit 1
+          fi
+          echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          echo "version=$expected" >> "$GITHUB_OUTPUT"
+
+      - name: the version of the release is known
+        run: |
+          if [ -z "${{ steps.version.outputs.tag }}" ] || [ -z "${{ steps.version.outputs.version }}" ]; then
+            echo "the version of the release is empty: the step that computes it did not write its outputs"
+            exit 1
+          fi
+          echo "the release is ${{ steps.version.outputs.tag }} (${{ steps.version.outputs.version }})"
+
+      - name: the versions of the project agree
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          # The default of the image is the version of the package: an
+          # image that is built without a version is not a release.
+          default=$(grep -E '^ARG VERSION=' Dockerfile | head -1 | cut -d= -f2)
+          if [ "$default" != "$version" ]; then
+            echo "the Dockerfile builds the version $default and the package is $version"
+            exit 1
+          fi
+          echo "the image and the package are the version $version"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: the login in the registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: build the image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          load: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.version.outputs.tag }}
+            ${{ env.IMAGE }}:${{ steps.version.outputs.version }}
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+            REVISION=${{ github.sha }}
+          # The attestations are added when the image is published: the
+          # docker exporter of a local build cannot carry a manifest list,
+          # and an attestation is one.
+          provenance: false
+          sbom: false
+
+      - name: the database of the release
+        run: |
+          set -euo pipefail
+          # The state of a deployment is shared: the image of the release
+          # is started against a real PostgreSQL, with the roles and the
+          # schema of a deployment, the way a deployment runs.
+          docker network create depot-release
+          docker run -d --name depot-pg --network depot-release \
+            -e POSTGRES_USER=depot -e POSTGRES_PASSWORD=depot -e POSTGRES_DB=postgres \
+            postgres:16-alpine
+          until docker exec depot-pg pg_isready -U depot; do sleep 1; done
+
+      - name: the roles and the schema of the deployment
+        run: |
+          set -euo pipefail
+          # The provisioning is an operator command: it creates the roles
+          # of the separation of the privileges and the database of the
+          # deployment. The migrations are applied with the owner of the
+          # schema, never with the api.
+          docker run --rm --network depot-release \
+            -e DATA_ADMIN_DATABASE_URL=postgres://depot:depot@depot-pg:5432/postgres \
+            -e DATA_OWNER_DATABASE_URL=postgres://data_owner:release-owner-password-0001@depot-pg:5432/depot \
+            -e DATA_OWNER_PASSWORD=release-owner-password-0001 \
+            -e DATA_RUNTIME_PASSWORD=release-runtime-password-0001 \
+            -e DATA_REGISTRY_PASSWORD=release-registry-password-0001 \
+            -e DATA_DELIVERY_PASSWORD=release-delivery-password-0001 \
+            -e DATA_MAINTENANCE_PASSWORD=release-maintenance-password-001 \
+            --entrypoint sh \
+            "${{ env.IMAGE }}:${{ steps.version.outputs.tag }}" \
+            -c "bun run scripts/provision.ts && bun run scripts/migrate.ts"
+
+      - name: the stub of the hub
+        run: |
+          set -euo pipefail
+          # The readiness of the service asks the hub for the contract of
+          # the access context: the release proves the image against a
+          # stub that answers the discovery, and not against a hub that
+          # is not there.
+          nohup bun -e "
+          const server = Bun.serve({
+            port: 8099,
+            hostname: '0.0.0.0',
+            fetch: async (request) => {
+              const url = new URL(request.url);
+              if (url.pathname === '/v1/access-context' && request.method === 'GET') {
+                return new Response(JSON.stringify({ version: 1, contract: 'access-context' }), {
+                  headers: { 'content-type': 'application/json' },
+                });
+              }
+              return new Response('not found', { status: 404 });
+            },
+          });
+          console.log('the stub of the hub listens on ' + server.port);
+          " > "$RUNNER_TEMP/hub.log" 2>&1 &
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8099/v1/access-context > /dev/null; then
+              echo "the stub of the hub answers the discovery"
+              exit 0
+            fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/hub.log"
+          exit 1
+
+      - name: the image starts with the configuration of a deployment
+        run: |
+          set -euo pipefail
+          # The state of the deployment is shared: the image reaches the
+          # PostgreSQL of the job through the network of the job, and the
+          # stub of the hub through the host of the runner.
+          docker run -d --name depot-api --network depot-release \
+            --add-host host.docker.internal:host-gateway \
+            -e DATA_ENVIRONMENT=development \
+            -e DATA_HOST=0.0.0.0 -e DATA_PORT=8082 \
+            -e DATA_PROCESS_ROLE=api \
+            -e DATA_DATABASE_URL=postgres://data_runtime:release-runtime-password-0001@depot-pg:5432/depot \
+            -e DATA_REGISTRY_DATABASE_URL=postgres://data_registry:release-registry-password-0001@depot-pg:5432/depot \
+            -e DATA_SCHEMA_BUNDLE_FILE=/app/manifests/schema.json \
+            -e DATA_POLICY_BUNDLE_FILE=/app/manifests/policies.json \
+            -e DATA_SHUTTLE_BINDINGS_FILE=/etc/depot/bindings.json \
+            -e DATA_HUB_URL=http://host.docker.internal:8099 \
+            -e DATA_HUB_CONTEXT_TOKEN_FILE=/run/secrets/hub-context.token \
+            -e DATA_CURSOR_KEY_FILE=/run/secrets/cursor.key \
+            -v "$PWD/deploy/bindings.json:/etc/depot/bindings.json:ro" \
+            -v "$PWD/deploy/secrets:/run/secrets:ro" \
+            -p 8082:8082 \
+            "${{ env.IMAGE }}:${{ steps.version.outputs.tag }}"
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8082/healthz > /dev/null; then
+              echo "the service of the image is healthy"
+              curl -fsS http://127.0.0.1:8082/healthz
+              echo
+              break
+            fi
+            sleep 1
+          done
+          # The readiness of the service needs the schema of the
+          # deployment, the role of the connection and the hub: the image
+          # is ready only when the rows of a workspace are isolated and
+          # the context of a principal can be asked for.
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8082/readyz > /dev/null; then
+              echo "the service of the image is ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "the service of the image did not become ready"
+          docker logs depot-api
+          exit 1
+
+      - name: the image refuses to start without the key that signs the cursors
+        run: |
+          set -euo pipefail
+          # The key that signs the cursors is a secret of the
+          # deployment: it is a file that the deployment mounts, and the
+          # service that starts without one cannot sign the pages of a
+          # collection.
+          if docker run --rm --network depot-release \
+            -e DATA_ENVIRONMENT=development \
+            -e DATA_HOST=0.0.0.0 -e DATA_PORT=8082 \
+            -e DATA_PROCESS_ROLE=api \
+            -e DATA_DATABASE_URL=postgres://data_runtime:release-runtime-password-0001@depot-pg:5432/depot \
+            -e DATA_REGISTRY_DATABASE_URL=postgres://data_registry:release-registry-password-0001@depot-pg:5432/depot \
+            -e DATA_SCHEMA_BUNDLE_FILE=/app/manifests/schema.json \
+            -e DATA_POLICY_BUNDLE_FILE=/app/manifests/policies.json \
+            -e DATA_SHUTTLE_BINDINGS_FILE=/etc/depot/bindings.json \
+            -e DATA_HUB_URL=http://host.docker.internal:8099 \
+            -e DATA_HUB_CONTEXT_TOKEN_FILE=/run/secrets/hub-context.token \
+            -v "$PWD/deploy/bindings.json:/etc/depot/bindings.json:ro" \
+            -v "$PWD/deploy/secrets:/run/secrets:ro" \
+            "${{ env.IMAGE }}:${{ steps.version.outputs.tag }}"; then
+            echo "the service started without the key that signs the cursors"
+            exit 1
+          fi
+
+      - name: the image is not ready with the credentials of the administrator
+        run: |
+          set -euo pipefail
+          # The role of the connection of the api is not a superuser and
+          # it does not bypass the isolation of the rows: a deployment
+          # that gives the credentials of the administrator to the api
+          # loses the isolation, and the service says that it is not
+          # ready.
+          docker rm -f depot-admin > /dev/null 2>&1 || true
+          docker run -d --name depot-admin --network depot-release \
+            --add-host host.docker.internal:host-gateway \
+            -e DATA_ENVIRONMENT=development \
+            -e DATA_HOST=0.0.0.0 -e DATA_PORT=8082 \
+            -e DATA_PROCESS_ROLE=api \
+            -e DATA_DATABASE_URL=postgres://depot:depot@depot-pg:5432/postgres \
+            -e DATA_REGISTRY_DATABASE_URL=postgres://depot:depot@depot-pg:5432/postgres \
+            -e DATA_SCHEMA_BUNDLE_FILE=/app/manifests/schema.json \
+            -e DATA_POLICY_BUNDLE_FILE=/app/manifests/policies.json \
+            -e DATA_SHUTTLE_BINDINGS_FILE=/etc/depot/bindings.json \
+            -e DATA_HUB_URL=http://host.docker.internal:8099 \
+            -e DATA_HUB_CONTEXT_TOKEN_FILE=/run/secrets/hub-context.token \
+            -e DATA_CURSOR_KEY_FILE=/run/secrets/cursor.key \
+            -v "$PWD/deploy/bindings.json:/etc/depot/bindings.json:ro" \
+            -v "$PWD/deploy/secrets:/run/secrets:ro" \
+            -p 8083:8082 \
+            "${{ env.IMAGE }}:${{ steps.version.outputs.tag }}"
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8083/healthz > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8083/healthz > /dev/null
+          status=$(curl -s -o "$RUNNER_TEMP/readyz.json" -w '%{http_code}' http://127.0.0.1:8083/readyz || true)
+          if [ "$status" != "503" ]; then
+            echo "the readiness answered with the status $status and not with 503"
+            cat "$RUNNER_TEMP/readyz.json" || true
+            docker logs depot-admin
+            exit 1
+          fi
+          echo "the service with the credentials of the administrator is not ready"
+          docker rm -f depot-admin > /dev/null 2>&1 || true
+
+      - name: publish the image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.version.outputs.tag }}
+            ${{ env.IMAGE }}:${{ steps.version.outputs.version }}
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+            REVISION=${{ github.sha }}
+          # The provenance of the image: what was built and from what.
+          # The registry carries the attestations, the local build cannot:
+          # the docker exporter does not support the manifest list of an
+          # attestation.
+          provenance: true
+          sbom: true
+
+      - name: export the image
+        run: |
+          docker save "${{ env.IMAGE }}:${{ steps.version.outputs.tag }}" \
+            | gzip > depot-${{ steps.version.outputs.tag }}.tar.gz
+          # The digest of the image: it is what a deployment pins.
+          docker image inspect "${{ env.IMAGE }}:${{ steps.version.outputs.tag }}" \
+            --format '{{index .RepoDigests 0}}' || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: depot-image-${{ steps.version.outputs.tag }}
+          path: depot-${{ steps.version.outputs.tag }}.tar.gz
+          retention-days: 30

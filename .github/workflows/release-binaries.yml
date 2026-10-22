@@ -1,0 +1,388 @@
+name: release-binaries
+
+# The release of the standalone binaries.
+#
+# The workflow runs on a tag: it checks that the tag names the version of
+# the package, it compiles the service for every supported platform, it
+# proves that the binary of the runner starts and serves, and it publishes
+# the binaries on the release of the tag.
+#
+#   git tag v0.1.0-alpha.1 && git push origin v0.1.0-alpha.1
+#
+# A binary of the data backend is not only an executable: the service
+# reads the manifests of the collections, the policies and the migrations
+# of the deployment from the disk. Every archive of a release carries
+# them next to the executable.
+#
+# The container image of the same release is built by the workflow of the
+# release (release.yml).
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'The tag of the release'
+        required: true
+        type: string
+
+permissions:
+  # The release is created by the job that publishes it: the jobs that
+  # only build the binaries need nothing but the source.
+  contents: read
+
+env:
+  # The version of the runtime the binaries are built and released with.
+  BUN_VERSION: '1.4.3'
+
+jobs:
+  version:
+    name: the version of the release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: the tag names the version of the package
+        id: version
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          tag="${tag#v}"
+          expected=$(node -p "require('./package.json').version")
+          if [ "$tag" != "$expected" ]; then
+            echo "the tag $tag does not name the version $expected of the package"
+            exit 1
+          fi
+          echo "version=$expected" >> "$GITHUB_OUTPUT"
+          echo "tag=v$expected" >> "$GITHUB_OUTPUT"
+
+      - name: the versions of the project agree
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          default=$(grep -E '^ARG VERSION=' Dockerfile | head -1 | cut -d= -f2)
+          if [ "$default" != "$version" ]; then
+            echo "the Dockerfile builds the version $default and the package is $version"
+            exit 1
+          fi
+          echo "the image and the package are the version $version"
+
+  binaries:
+    name: the binary of ${{ matrix.platform }}
+    needs: version
+    runs-on: ubuntu-latest
+    strategy:
+      # One platform that fails does not hide the state of the others.
+      fail-fast: false
+      matrix:
+        include:
+          - target: 'bun-linux-x64'
+            platform: 'linux-x64'
+            binary: 'depot'
+          - target: 'bun-linux-x64-musl'
+            platform: 'linux-x64-musl'
+            binary: 'depot'
+          - target: 'bun-linux-arm64'
+            platform: 'linux-arm64'
+            binary: 'depot'
+          - target: 'bun-darwin-x64'
+            platform: 'darwin-x64'
+            binary: 'depot'
+          - target: 'bun-darwin-arm64'
+            platform: 'darwin-arm64'
+            binary: 'depot'
+          - target: 'bun-windows-x64'
+            platform: 'windows-x64'
+            binary: 'depot.exe'
+          - target: 'bun-windows-arm64'
+            platform: 'windows-arm64'
+            binary: 'depot.exe'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: install the dependencies of the service
+        run: bun install --frozen-lockfile
+
+      - name: compile
+        run: |
+          set -euo pipefail
+          bundle="dist/depot-${{ needs.version.outputs.version }}-${{ matrix.platform }}"
+          mkdir -p "$bundle/manifests" "$bundle/migrations"
+          bun build src/main.ts --compile \
+            --target=${{ matrix.target }} \
+            --outfile "$bundle/${{ matrix.binary }}"
+          # The service reads the artifacts of the deployment from the
+          # disk: they are next to the executable of the archive.
+          cp manifests/schema.json manifests/policies.json "$bundle/manifests/"
+          cp migrations/*.sql "$bundle/migrations/"
+          cat > "$bundle/README.md" <<'EOF'
+          # The data backend
+
+          The executable of this directory is the data backend: a
+          headless, permission aware data API. The runtime is inside it:
+          nothing else has to be installed.
+
+          The directory holds the artifacts of the deployment:
+
+          - `manifests/schema.json` and `manifests/policies.json` are the
+            collections and the policies of the deployment.
+          - `migrations/` are the migrations of the schema. They are
+            applied by the operator command of the repository, never by
+            the api.
+
+          The service is configured with the environment: the names of the
+          variables are in the documentation of the repository
+          (`docs/operations.md`). A secret is a file, never a value of
+          the environment.
+          EOF
+          (cd dist && tar -czf "depot-${{ needs.version.outputs.version }}-${{ matrix.platform }}.tar.gz" "depot-${{ needs.version.outputs.version }}-${{ matrix.platform }}")
+          ls -la dist
+
+      - name: the binary is of the expected format
+        run: |
+          set -euo pipefail
+          binary="dist/depot-${{ needs.version.outputs.version }}-${{ matrix.platform }}/${{ matrix.binary }}"
+          test -f "$binary"
+          magic=$(head -c 4 "${binary}" | od -An -tx1 | tr -d ' \n')
+          case "${{ matrix.target }}" in
+            bun-windows-*) expected="4d5a7800" ;;
+            bun-darwin-*) expected="cffaedfe" ;;
+            *) expected="7f454c46" ;;
+          esac
+          if [ "${magic}" != "${expected}" ]; then
+            echo "the binary of ${{ matrix.target }} starts with ${magic} and not with ${expected}"
+            exit 1
+          fi
+          echo "the binary of ${{ matrix.target }} is of the expected format"
+
+      - name: the archive of the platform holds the artifacts of the deployment
+        run: |
+          set -euo pipefail
+          archive="dist/depot-${{ needs.version.outputs.version }}-${{ matrix.platform }}.tar.gz"
+          test -f "$archive"
+          listing=$(tar -tzf "$archive")
+          echo "$listing"
+          for file in \
+            "depot-${{ needs.version.outputs.version }}-${{ matrix.platform }}/${{ matrix.binary }}" \
+            "depot-${{ needs.version.outputs.version }}-${{ matrix.platform }}/manifests/schema.json" \
+            "depot-${{ needs.version.outputs.version }}-${{ matrix.platform }}/manifests/policies.json"; do
+            if ! echo "$listing" | grep -qx "$file"; then
+              echo "the archive does not hold $file"
+              exit 1
+            fi
+          done
+          if ! echo "$listing" | grep -q "/migrations/.*\.sql$"; then
+            echo "the archive does not hold the migrations of the deployment"
+            exit 1
+          fi
+
+      - name: the binary of this machine starts and serves
+        if: matrix.target == 'bun-linux-x64'
+        run: |
+          set -euo pipefail
+          root="$PWD"
+          bundle="$root/dist/depot-${{ needs.version.outputs.version }}-${{ matrix.platform }}"
+
+          # The database of the deployment: the binary is proved against
+          # a real PostgreSQL, with the roles of the separation of the
+          # privileges, and not against a mock.
+          docker run -d --name depot-pg \
+            -e POSTGRES_USER=depot -e POSTGRES_PASSWORD=depot -e POSTGRES_DB=postgres \
+            -p 5432:5432 postgres:16-alpine
+          until docker exec depot-pg pg_isready -U depot; do sleep 1; done
+
+          DATA_ADMIN_DATABASE_URL=postgres://depot:depot@127.0.0.1:5432/postgres \
+          DATA_OWNER_DATABASE_URL=postgres://data_owner:smoke-owner-password-0001@127.0.0.1:5432/depot \
+          DATA_OWNER_PASSWORD=smoke-owner-password-0001 \
+          DATA_RUNTIME_PASSWORD=smoke-runtime-password-0001 \
+          DATA_REGISTRY_PASSWORD=smoke-registry-password-0001 \
+          DATA_DELIVERY_PASSWORD=smoke-delivery-password-0001 \
+          DATA_MAINTENANCE_PASSWORD=smoke-maintenance-password-001 \
+            bun run scripts/provision.ts
+          DATA_OWNER_DATABASE_URL=postgres://data_owner:smoke-owner-password-0001@127.0.0.1:5432/depot \
+            bun run scripts/migrate.ts
+
+          # The stub of the hub: the readiness of the service asks the
+          # hub for the contract of the access context.
+          nohup bun -e "
+          const server = Bun.serve({
+            port: 8099,
+            hostname: '127.0.0.1',
+            fetch: async (request) => {
+              const url = new URL(request.url);
+              if (url.pathname === '/v1/access-context' && request.method === 'GET') {
+                return new Response(JSON.stringify({ version: 1, contract: 'access-context' }), {
+                  headers: { 'content-type': 'application/json' },
+                });
+              }
+              return new Response('not found', { status: 404 });
+            },
+          });
+          console.log('the stub of the hub listens on ' + server.port);
+          " > hub.log 2>&1 &
+
+          # The bindings of the gateway: the identity of a request is
+          # signed with a key, and the key of the smoke test is one that
+          # is generated here.
+          mkdir -p "$root/smoke"
+          openssl rand -hex 32 > "$root/smoke/identity.key"
+          cat > "$root/smoke/bindings.json" <<EOF
+          {
+            "version": 1,
+            "bindings": [
+              {
+                "id": "data-api",
+                "host": "smoke.shuttle.test",
+                "upstreamPathPattern": "/ws/{workspaceId}/v1/*",
+                "routeId": "data-api",
+                "identityKeyFile": "$root/smoke/identity.key"
+              }
+            ]
+          }
+          EOF
+
+          # The process is started in the directory of the bundle: the
+          # manifests and the migrations of the deployment are read from
+          # the disk, next to the executable.
+          (
+            cd "$bundle"
+            DATA_ENVIRONMENT=development \
+            DATA_HOST=127.0.0.1 \
+            DATA_PORT=18099 \
+            DATA_PROCESS_ROLE=api \
+            DATA_DATABASE_URL=postgres://data_runtime:smoke-runtime-password-0001@127.0.0.1:5432/depot \
+            DATA_REGISTRY_DATABASE_URL=postgres://data_registry:smoke-registry-password-0001@127.0.0.1:5432/depot \
+            DATA_SCHEMA_BUNDLE_FILE="$bundle/manifests/schema.json" \
+            DATA_POLICY_BUNDLE_FILE="$bundle/manifests/policies.json" \
+            DATA_SHUTTLE_BINDINGS_FILE="$root/smoke/bindings.json" \
+            DATA_HUB_URL=http://127.0.0.1:8099 \
+            DATA_HUB_CONTEXT_TOKEN_FILE="$root/deploy/secrets/hub-context.token" \
+            DATA_CURSOR_KEY_FILE="$root/deploy/secrets/cursor.key" \
+            DATA_LOG_LEVEL=error \
+            ./depot > "$root/gateway.log" 2>&1 &
+            echo $! > "$root/gateway.pid"
+          )
+          pid=$(cat "$root/gateway.pid")
+          ready=0
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18099/healthz > /dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          kill "${pid}" 2>/dev/null || true
+          wait "${pid}" 2>/dev/null || true
+          if [ "${ready}" != "1" ]; then
+            echo "the compiled binary did not answer the health probe:"
+            cat "$root/gateway.log"
+            exit 1
+          fi
+          echo "the compiled binary starts, serves the health probe and stops"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: depot-${{ matrix.platform }}
+          path: dist/depot-*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: the release of the binaries
+    needs: [version, binaries]
+    runs-on: ubuntu-latest
+    permissions:
+      # The release of the tag is created here.
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: 'depot-*'
+          merge-multiple: true
+
+      - name: the binaries of the release
+        run: |
+          ls -la dist
+          test -n "$(ls dist/depot-*.tar.gz)"
+
+      - name: the checksums of the binaries
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum depot-*.tar.gz > checksums.txt
+          cat checksums.txt
+
+      - name: the notes of the release
+        run: |
+          cat > notes.md <<EOF
+          The data backend, as a standalone executable: a headless,
+          permission aware data API behind Shuttle, authorized by Hub. The
+          runtime is inside the binary: nothing else has to be installed.
+
+          | Platform | Archive |
+          | --- | --- |
+          | Linux x64 (glibc) | \`depot-${{ needs.version.outputs.version }}-linux-x64.tar.gz\` |
+          | Linux x64 (musl, Alpine) | \`depot-${{ needs.version.outputs.version }}-linux-x64-musl.tar.gz\` |
+          | Linux arm64 | \`depot-${{ needs.version.outputs.version }}-linux-arm64.tar.gz\` |
+          | macOS x64 | \`depot-${{ needs.version.outputs.version }}-darwin-x64.tar.gz\` |
+          | macOS arm64 | \`depot-${{ needs.version.outputs.version }}-darwin-arm64.tar.gz\` |
+          | Windows x64 | \`depot-${{ needs.version.outputs.version }}-windows-x64.tar.gz\` |
+          | Windows arm64 | \`depot-${{ needs.version.outputs.version }}-windows-arm64.tar.gz\` |
+
+          Every archive holds the executable, the manifests of the
+          collections, the policies and the migrations of the deployment.
+          The service is configured with the environment, and a secret is
+          a file: the environment is described in [the documentation](https://github.com/ggpwnkthx/depot/blob/${{ needs.version.outputs.tag }}/docs/operations.md).
+
+          The binaries carry the runtime of the release (Bun ${{ env.BUN_VERSION }}) and
+          the version of the service (${{ needs.version.outputs.version }}).
+
+          The checksums are in \`checksums.txt\`:
+
+          \`\`\`bash
+          sha256sum --check checksums.txt
+          \`\`\`
+
+          The container image of the same release is on the registry of the
+          repository:
+          \`\`\`bash
+          docker pull ghcr.io/ggpwnkthx/depot:${{ needs.version.outputs.version }}
+          \`\`\`
+          EOF
+
+      - name: publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.version.outputs.tag }}
+          # The job does not check the repository out: the name of the
+          # repository is given to the command, or it cannot tell which
+          # repository it publishes to.
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # The release is created once: a run that is repeated uploads the
+          # binaries again and replaces them.
+          if ! gh release view "${TAG}" --repo "${REPOSITORY}" > /dev/null 2>&1; then
+            gh release create "${TAG}" \
+              --repo "${REPOSITORY}" \
+              --title "Depot ${TAG}" \
+              --notes-file notes.md \
+              --verify-tag
+          fi
+          gh release upload "${TAG}" dist/* --repo "${REPOSITORY}" --clobber
+          gh release view "${TAG}" --repo "${REPOSITORY}"
