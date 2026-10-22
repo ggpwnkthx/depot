@@ -1,0 +1,71 @@
+name: the tag of the release
+
+# The workflow runs on a push to the main branch: it reads the version
+# of the project, and it creates the tag of the release when the
+# version increased. The tag is what the workflows of the release run
+# on: the image of the release, the binaries of the release and the
+# client of the release.
+#
+#   git commit -m "release: the version 1.0.0 of the service, of the client and of the image"
+#   git push origin main
+#
+# The push of the tag needs a token that is not the token of the
+# repository: a push made with the token of the repository does not
+# start the workflows of the release, because the events that the token
+# of the repository creates are not events for the workflows of the
+# repository. The secret `RELEASE_TOKEN` of the repository is a
+# personal access token with the permission `contents: write`.
+#
+# The workflow can also be started by hand, and it prints the tag it
+# would create without creating it when the input `dry_run` is set.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'the tag is computed and printed, and it is not created'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    name: the tag of the release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The tags are the history of the versions: the workflow
+          # compares the version of the project with the tags that
+          # exist, and it needs all of them.
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+
+      - name: the tag of the release
+        env:
+          # The token that pushes the tag. It is the personal access
+          # token of the repository: the token of the repository does
+          # not start the workflows of the release.
+          RELEASE_TAG_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: bun run scripts/tag-release.ts ${{ inputs.dry_run == true && '--dry-run' || '' }}
+
+      - name: the state of the release
+        run: |
+          set -euo pipefail
+          {
+            echo "### The tag of the release"
+            echo
+            echo "The version of the project is \`$(node -p "require('./package.json').version")\`."
+            echo
+            echo "The tags of the repository:"
+            echo
+            git tag --list 'v*' --sort=-v:refname | head -10
+          } >> "$GITHUB_STEP_SUMMARY"

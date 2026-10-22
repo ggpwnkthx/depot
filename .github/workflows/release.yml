@@ -15,6 +15,15 @@ name: release
 on:
   push:
     tags: ['v*']
+  # A release whose tag was pushed with the token of the repository
+  # does not start this workflow by itself: the workflow can be started
+  # by hand with the tag of the release.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'the tag of the release'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -33,6 +42,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -45,14 +56,19 @@ jobs:
       # empty tag.
       - name: the version of the release
         id: version
+        env:
+          # The tag of a run that was started by hand: the reference of
+          # the run is the branch and not the tag.
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
           expected=$(node -p "require('./package.json').version")
-          tag="${GITHUB_REF_NAME#v}"
+          tag="${INPUT_TAG:-${GITHUB_REF_NAME}}"
+          tag="${tag#v}"
           if [ "$tag" != "$expected" ]; then
-            echo "the tag $GITHUB_REF_NAME does not name the version $expected of the package"
+            echo "the tag $tag does not name the version $expected of the package"
             exit 1
           fi
-          echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${tag}" >> "$GITHUB_OUTPUT"
           echo "version=$expected" >> "$GITHUB_OUTPUT"
 
       - name: the version of the release is known

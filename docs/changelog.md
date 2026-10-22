@@ -42,6 +42,17 @@ the API.
 
 ### Added
 
+- **The tag of the release is created by the workflow of the
+  repository.** The workflow `the tag of the release` runs on every push
+  to the `main` branch: it reads the version of the project, it
+  compares it with the tags that exist, and it creates and pushes the
+  tag when the version increased. The command
+  `bun run scripts/tag-release.ts` is the same one, and it writes the
+  version of the release in the three files of the project with
+  `--set`. The push of the tag needs a personal access token with the
+  permission `contents: write`, the secret `RELEASE_TOKEN`: a push
+  made with the token of the repository does not start the workflows of
+  the release.
 - **The differential test of the guard of a write**
   (`test/integration/write-guard.test.ts`): it generates the policies
   of a write, it writes the rows they are read over, and it compares

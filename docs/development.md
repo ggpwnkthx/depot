@@ -93,10 +93,64 @@ a build whose dependencies carry a known vulnerability.
 | `bun run scripts/check-compatibility.ts` | The check of the drift of the baseline of the integration. |
 | `bun run scripts/check-client-package.ts` | The packed client, installed outside of the repository. |
 | `bun run scripts/compatibility.ts` | The harness of the compatibility. |
+| `bun run scripts/tag-release.ts` | The tag of the release, when the version of the project increased. |
 
 Every script is an operator command: it runs on the machine of the
 deployment, it is not an HTTP route, and it never bypasses Hub. The
 credentials that they need are in [the configuration](configuration.md).
+
+## The tag of a release
+
+The release of the service is a tag: `v1.0.0` names the version
+`1.0.0`, and the workflows of the release — the image, the binaries of
+the seven platforms, the client and the checksums — run on the tag.
+
+**The tag is created by the workflow of the repository.** The workflow
+`the tag of the release` runs on every push to the `main` branch: it
+reads the version of the project, it compares it with the tags that
+exist, and it creates and pushes the tag when the version increased.
+
+```bash
+# the tag that the workflow would create, without creating it
+bun run scripts/tag-release.ts --dry-run
+```
+
+The command is the same one, and it can be run by hand. It refuses a
+project whose three versions do not agree — the manifest of the
+service, the manifest of the client and the `ARG VERSION` of the
+`Dockerfile` — and it compares the versions as numbers and never as
+texts: `0.10.0` is greater than `0.9.0`.
+
+**The push of the tag needs a token that is not the token of the
+repository.** A push made with the token of the repository does not
+start the workflows of the release, because the events that the token
+of the repository creates are not events for the workflows of the
+repository. The secret `RELEASE_TOKEN` of the repository is a personal
+access token with the permission `contents: write`, and the workflow
+pushes the tag with it.
+
+When the secret is not there, the tag is pushed with the token of the
+repository and the workflow says so: the release does not start by
+itself, and it is started by hand with the tag — the workflow of the
+image and the workflow of the binaries both accept the tag of the
+release as an input.
+
+The version of a release is written in one command, and it is
+written in the three files of the project — the manifest of the
+service, the manifest of the client and the `ARG VERSION` of the
+`Dockerfile`:
+
+```bash
+bun run scripts/tag-release.ts --set 1.0.0
+git commit -m "release: the version 1.0.0 of the service, of the client and of the image"
+git push origin main
+```
+
+The push of the commit is the trigger: the workflow reads the version,
+it compares it with the tags, and it creates the tag. The command
+refuses a version that is not greater than the version of the latest
+tag, and the continuous integration refuses a commit whose three
+versions do not agree.
 
 ## The milestones of the implementation
 

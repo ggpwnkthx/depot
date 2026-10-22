@@ -55,8 +55,10 @@ When the two gates outside the repository are met:
 
 1. the version of the service, of the client and of the image becomes
    `1.0.0`, in `package.json`, in `packages/client/package.json` and in
-   the `ARG VERSION` of the `Dockerfile`. The continuous integration
-   refuses a release whose three versions disagree.
+   the `ARG VERSION` of the `Dockerfile`. The command
+   `bun run scripts/tag-release.ts --set 1.0.0` writes the three files
+   with the same version, and the continuous integration refuses a
+   release whose three versions disagree.
 2. the status of the release changes in the five documents that carry
    it: `README.md`, `docs/README.md`, `docs/changelog.md`,
    `docs/security.md` and `docs/development.md`. The wording of the
@@ -69,6 +71,9 @@ When the two gates outside the repository are met:
    legacy verification of the identity is refused by default, the
    client is published on a registry and it runs with node, and the
    backup of a deployment works with the roles of the deployment.
-4. the tag `v1.0.0` is pushed, and the workflows of the release
-   publish the image, the binaries of the seven platforms, the client
-   and the checksums of the release.
+4. the commit of the version is pushed, and the workflow `the tag of
+   the release` creates the tag `v1.0.0` and pushes it. The workflows
+   of the release publish the image, the binaries of the seven
+   platforms, the client and the checksums of the release. The details
+   of the tag are in [the development](development.md) §"The tag of a
+   release".
