@@ -37,6 +37,18 @@ run outside its own harness. It has no production history, no external
 user, and no review that was written by somebody other than the author
 of the code.
 
+**The next version is `1.0.0`, and it is a release candidate.** Every
+gate of the repository is green: the types, the style, the boundaries,
+the suites, the fuzzing of the trust boundary, the differential tests
+of the predicates and of the guard of a write, the client outside of
+the repository with bun and with node, the image that is built and
+started, the compatibility with the pinned gateway and the pinned hub,
+the rehearsal of the backup and of the restore, and the measurement of
+the capacity. Two gates are outside the repository: a deployment with a
+real studio and a real tenant, and a review that was written by
+somebody other than the author of the code. They are listed in [the
+readiness of the version 1.0.0](docs/release-readiness.md).
+
 The release carries the service in three forms:
 
 | What | Where |

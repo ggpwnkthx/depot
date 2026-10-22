@@ -51,3 +51,9 @@ run outside its own harness. It has no production history, no external
 user, and no review that was written by somebody other than the author
 of the code. The findings that are still open are in
 [security.md](security.md).
+
+**The next version is `1.0.0`, and it is a release candidate.** The
+gates of the repository are green, and the two gates that are outside
+the repository — a deployment with a real studio and a real tenant,
+and a review that was written by somebody else — are listed in
+[the readiness of the version 1.0.0](release-readiness.md).

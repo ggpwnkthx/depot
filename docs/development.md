@@ -120,8 +120,11 @@ author of the code is not an assurance. The service has never run
 outside its own harness — it has no production history, no external
 user and no review that was written by somebody else.
 
-The review of the security of the service, and the findings that are
-still open, are in [the security](security.md).
+The version `1.0.0` is a release candidate, and the gates that are
+outside the repository are listed in [the readiness of the version
+1.0.0](release-readiness.md). The review of the security of the
+service, and the findings that are still open, are in [the
+security](security.md).
 
 ## Adding a collection
 

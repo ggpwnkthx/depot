@@ -15,6 +15,15 @@ It has no production history, no external user, and no audit that was
 not written by the author of the code. Every "proved" below means "a
 check of this repository passes", and nothing more.
 
+The next version is `1.0.0`, and it is a release candidate: the gates
+of the repository are green, and the two gates that are outside the
+repository — a deployment with a real studio and a real tenant, and a
+review that was written by somebody other than the author of the code
+— are listed in [the readiness of the version 1.0.0](release-readiness.md).
+The findings that are open below are the ones that the version `1.0.0`
+does not close, and they are open on purpose: they are written down
+with their plan.
+
 ## The model
 
 | The surface | What protects it |
