@@ -56,10 +56,10 @@ guarded write path of the version `1.0.0`.
 
 | Scenario | The requests | The rate | p50 | p95 | p99 | The failures |
 | --- | --- | --- | --- | --- | --- | --- |
-| Read heavy, a page of 50 | 16855 | 1686/s | 9.3 ms | 11.6 ms | 13.4 ms | 0 |
-| Mixed, half of the creations | 20770 | 2077/s | 7.5 ms | 10.2 ms | 12.2 ms | 0 |
-| The concurrent updates of one record | 6089 | 609/s | 26.0 ms | 31.4 ms | 40.6 ms | 0 (385 successes, 5704 precondition failures) |
-| Hub is down | 62780 | 6278/s | 2.5 ms | 3.2 ms | 4.6 ms | 62780 answers 503 |
+| Read heavy, a page of 50 | 16589 | 1659/s | 9.4 ms | 11.8 ms | 13.4 ms | 0 |
+| Mixed, half of the creations | 21127 | 2113/s | 7.4 ms | 9.8 ms | 11.2 ms | 0 |
+| The concurrent updates of one record | 6218 | 622/s | 25.7 ms | 30.2 ms | 33.2 ms | 0 (389 successes, 5829 precondition failures) |
+| Hub is down | 62091 | 6209/s | 2.5 ms | 3.3 ms | 4.8 ms | 62091 answers 503 |
 
 What the numbers say:
 
@@ -176,9 +176,9 @@ The deployment of this repository is the reference, and it declares:
 | The availability | `DATA_CONTEXT_CACHE_TTL_MS=0`: the revocation of a grant is visible in the next request, and a Hub that is down answers `503` to every call |
 
 The objectives are the ones of the measurement above, with a margin of
-a half: the measurement reached 1 686 requests per second on the read
-heavy scenario and 2 077 on the mixed one, and the ninety fifth
-percentile was 11.6 and 10.2 milliseconds. A deployment that declares
+a half: the measurement reached 1 659 requests per second on the read
+heavy scenario and 2 113 on the mixed one, and the ninety fifth
+percentile was 11.8 and 9.8 milliseconds. A deployment that declares
 more than its machine holds is a deployment that answers `503` when it
 is full, and the service is measured with the command of the
 repository, not with a promise.
