@@ -9,22 +9,66 @@
  * The command needs a checkout of the pinned gateway:
  *
  *   SHUTTLE_CHECKOUT=/path/to/shuttle bun run scripts/generate-fixtures.ts
+ *
+ * The checkout has to be at the revision of the baseline of
+ * `compatibility.json`: the fixture is the evidence of the contract of
+ * that revision and not of another one.
  */
 
+import { spawnSync } from 'bun'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { generateKeyPairSync } from 'node:crypto'
+import { readCompatibilityManifest } from './compatibility-manifest'
 
 const checkout = process.env.SHUTTLE_CHECKOUT
 if (!checkout) {
   throw new Error('SHUTTLE_CHECKOUT must name a checkout of the pinned gateway')
 }
 
-const identity = await import(join(checkout, 'src/domains/forwarding/identity.ts'))
-const { signIdentity, deriveIdentityKey, canonicalIdentityPayload } = identity
+const manifest = await readCompatibilityManifest()
+const pinned = manifest.repositories.shuttle.commit
 
-/** The secret of the fixture. It is a fixture, not a secret of a deployment. */
-const SECRET = 'shuttle-fixture-session-secret-0001'
-const key = deriveIdentityKey(SECRET)
+// The checkout has to be the revision of the baseline: a fixture that
+// comes from another revision is not the evidence of the contract.
+const head = spawnSync(['git', 'rev-parse', 'HEAD'], { cwd: checkout })
+if (head.exitCode !== 0) {
+  throw new Error(`the checkout ${checkout} is not a git repository`)
+}
+const revision = head.stdout.toString().trim()
+if (revision !== pinned) {
+  throw new Error(
+    `the checkout ${checkout} is at ${revision} and the baseline of the gateway is ${pinned}`
+  )
+}
+
+const identity = await import(join(checkout, 'src/domains/forwarding/identity.ts'))
+const { signIdentity, canonicalIdentityPayload, asymmetricIdentityKey, symmetricIdentityKey } =
+  identity
+
+/**
+ * The secret of the legacy fixture.
+ *
+ * It is a fixture, not a secret of a deployment: it is the secret of the
+ * sessions of a gateway that signs with the derived key.
+ */
+const LEGACY_SECRET = 'shuttle-fixture-session-secret-0001'
+const legacyKey = symmetricIdentityKey(LEGACY_SECRET)
+
+/**
+ * The key pair of the current fixture.
+ *
+ * The private key signs the fixtures and it is not written anywhere: the
+ * fixture holds the public key and the signatures, and the backend never
+ * holds a private key of the gateway.
+ */
+const pair = generateKeyPairSync('ec', {
+  namedCurve: 'P-256',
+  publicKeyEncoding: { type: 'spki', format: 'pem' },
+  privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+})
+const publicKeyPem = pair.publicKey.toString()
+const currentKey = asymmetricIdentityKey(pair.privateKey.toString())
 
 /** The cases of the fixture. */
 const cases = [
@@ -74,15 +118,22 @@ const cases = [
   },
 ]
 
-const fixtures = []
+const current = []
+const legacy = []
 for (const entry of cases) {
-  const signature = await signIdentity(entry.identity, entry.request, key)
-  fixtures.push({
+  current.push({
     name: entry.name,
     identity: entry.identity,
     request: entry.request,
-    canonicalPayload: canonicalIdentityPayload(entry.identity, entry.request),
-    signature,
+    canonicalPayload: canonicalIdentityPayload(entry.identity, entry.request, 'v5'),
+    signature: await signIdentity(entry.identity, entry.request, currentKey),
+  })
+  legacy.push({
+    name: entry.name,
+    identity: entry.identity,
+    request: entry.request,
+    canonicalPayload: canonicalIdentityPayload(entry.identity, entry.request, 'v4'),
+    signature: await signIdentity(entry.identity, entry.request, legacyKey),
   })
 }
 
@@ -94,9 +145,19 @@ await writeFile(
     {
       comment:
         'The fixtures are produced by the pinned gateway, with scripts/generate-fixtures.ts.',
-      shuttleCommit: process.env.SHUTTLE_COMMIT ?? 'e39d73efc37e0ca75ae5df24136babf56430ebc7',
-      keyBase64: Buffer.from(key).toString('base64'),
-      cases: fixtures,
+      shuttleCommit: pinned,
+      current: {
+        version: 'v5',
+        algorithm: 'ES256',
+        publicKeyPem,
+        cases: current,
+      },
+      legacy: {
+        version: 'v4',
+        algorithm: 'HS256',
+        keyBase64: Buffer.from(legacyKey.key as Buffer).toString('base64'),
+        cases: legacy,
+      },
     },
     null,
     2

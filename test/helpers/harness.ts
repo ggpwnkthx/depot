@@ -7,7 +7,8 @@
  * real integration is produced by the compatibility harness.
  */
 
-import { CompactSign, base64url } from 'jose'
+import { CompactSign, base64url, importPKCS8, importSPKI, type CryptoKey } from 'jose'
+import { generateKeyPairSync } from 'node:crypto'
 import { createApp } from '../../src/app/app'
 import { ContextResolver } from '../../src/domains/authorization'
 import { parsePolicyBundle } from '../../src/domains/authorization/policies'
@@ -42,10 +43,47 @@ export const TENANT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 /** The tenant of the other workspace. */
 export const OTHER_TENANT_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 
-/** The key of the identity of the tests. */
+/**
+ * The derived key of the identity of the tests.
+ *
+ * It is the legacy format: a symmetric key that signs and that verifies.
+ * It is kept for the tests of the legacy mode, and it is not the key of
+ * the current path.
+ */
 export const IDENTITY_KEY = new Uint8Array(
   Buffer.from('0123456789abcdef0123456789abcdef0123456789abcdef', 'utf8')
 )
+
+/**
+ * The key pair of the identity of the tests.
+ *
+ * The tests of the service use the current format: the gateway holds the
+ * private key and the backend holds the public one. The pair is a
+ * fixture of the tests, and it is generated once for the run.
+ */
+const KEY_PAIR = generateKeyPairSync('ec', {
+  namedCurve: 'P-256',
+  publicKeyEncoding: { type: 'spki', format: 'pem' },
+  privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+})
+
+/** The private key of the tests, as a pem. */
+export const IDENTITY_PRIVATE_PEM = KEY_PAIR.privateKey.toString()
+/** The public key of the tests, as a pem. */
+export const IDENTITY_PUBLIC_PEM = KEY_PAIR.publicKey.toString()
+
+let privateKey: CryptoKey | undefined
+let publicKey: CryptoKey | undefined
+
+/** The key pair of the tests, as the keys of the library. */
+export async function identityKeys(): Promise<{
+  privateKey: CryptoKey
+  publicKey: CryptoKey
+}> {
+  privateKey ??= await importPKCS8(IDENTITY_PRIVATE_PEM, 'ES256')
+  publicKey ??= await importSPKI(IDENTITY_PUBLIC_PEM, 'ES256')
+  return { privateKey: privateKey, publicKey: publicKey }
+}
 
 /** The host of the tests. */
 export const HOST = 'api.example.test'
@@ -70,7 +108,6 @@ export interface Harness {
       roles?: string[]
       email?: string
       signature?: string | null
-      key?: Uint8Array
     }
   ) => Promise<Response>
   /** Sends a request without a signature. */
@@ -152,9 +189,13 @@ export async function createHarness(options: { policies?: string } = {}): Promis
         host: HOST,
         upstreamPathPattern: '/ws/{workspaceId}/v1/*',
         routeId: 'data-api',
-        identityKeyFile: 'test',
+        identity: { version: 'v5', algorithm: 'ES256', keyFile: 'test' },
       },
-      identityKey: IDENTITY_KEY,
+      verification: {
+        version: 'v5',
+        algorithm: 'ES256',
+        key: (await identityKeys()).publicKey,
+      },
     },
   ]
 
@@ -190,7 +231,6 @@ export async function createHarness(options: { policies?: string } = {}): Promis
       roles?: string[]
       email?: string
       signature?: string | null
-      key?: Uint8Array
     } = {}
   ): Promise<Response> => {
     const method = options.method ?? 'GET'
@@ -206,17 +246,7 @@ export async function createHarness(options: { policies?: string } = {}): Promis
       options.signature === null
         ? null
         : (options.signature ??
-          (await sign(
-            method,
-            pathOnly,
-            query,
-            host,
-            subject,
-            workspaceId,
-            roles,
-            email,
-            options.key ?? IDENTITY_KEY
-          )))
+          (await sign(method, pathOnly, query, host, subject, workspaceId, roles, email)))
     const headers = new Headers(options.headers ?? {})
     headers.set('x-forwarded-host', host)
     headers.set('x-shuttle-user', subject)
@@ -256,7 +286,12 @@ async function readFile(path: string): Promise<string> {
   return await Bun.file(path).text()
 }
 
-/** Signs a request the way the pinned gateway does. */
+/**
+ * Signs a request the way the pinned gateway does.
+ *
+ * The format is the current one: a detached JWS signed with `ES256` and
+ * the private key of the deployment of the gateway.
+ */
 export async function sign(
   method: string,
   path: string,
@@ -265,8 +300,42 @@ export async function sign(
   subject: string,
   workspaceId: string,
   roles: readonly string[],
+  email: string | undefined
+): Promise<string> {
+  const payload = JSON.stringify({
+    v: 'v5',
+    method: method.toUpperCase(),
+    path,
+    query,
+    host: host.toLowerCase(),
+    subject,
+    workspaceId,
+    email: email ?? '',
+    roles: [...roles].sort(),
+  })
+  const jws = await new CompactSign(new TextEncoder().encode(payload))
+    .setProtectedHeader({ alg: 'ES256', typ: 'shuttle-identity' })
+    .sign((await identityKeys()).privateKey)
+  const [header, , signature] = jws.split('.')
+  return `v5=${header}..${signature}`
+}
+
+/**
+ * Signs a request the way the legacy gateway did.
+ *
+ * The format is the symmetric one: a detached JWS signed with `HS256`
+ * and the key that is derived from the secret of the sessions.
+ */
+export async function signLegacy(
+  method: string,
+  path: string,
+  query: string,
+  host: string,
+  subject: string,
+  workspaceId: string,
+  roles: readonly string[],
   email: string | undefined,
-  key: Uint8Array
+  key: Uint8Array = IDENTITY_KEY
 ): Promise<string> {
   const payload = JSON.stringify({
     v: 'v4',

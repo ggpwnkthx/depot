@@ -33,20 +33,31 @@ Examples are illustrative configuration and protocol fixtures. They do not descr
 
 ### 1.1 Existing references
 
-The integration baseline is pinned to:
+<!-- compatibility-baseline:start -->
 
-| Project | Commit | Normative reference |
+The baseline of the integration is the one of `compatibility.json`: the
+one file of this repository that owns the repositories of the gateway and
+of the hub and the revisions that are tested against them.
+
+| Project | Repository | Revision |
 | --- | --- | --- |
-| Shuttle | `e39d73efc37e0ca75ae5df24136babf56430ebc7` | [Gateway specification](https://github.com/ggpwnkthx/shuttle/blob/e39d73efc37e0ca75ae5df24136babf56430ebc7/docs/spec.md) |
-| Hub | `4cedcfc48e9bb4eb556d2316eb502e1ab87d3105` | [Identity and grants specification](https://github.com/ggpwnkthx/hub/blob/4cedcfc48e9bb4eb556d2316eb502e1ab87d3105/docs/spec.md) |
+| Shuttle | https://github.com/ggpwnkthx/shuttle.git | `1199d6d350be86b0081cb367e022722649825544` |
+| Hub | https://github.com/ggpwnkthx/hub.git | `c52681fb3164ee952df93ae9dec8317dc6f9ce91` |
+
+<!-- compatibility-baseline:end -->
+
+The revisions are full commits: they are immutable, and a change of the
+baseline is a change of the manifest and a new run of the compatibility
+harness.
 
 Additional implementation evidence:
 
-- [Shuttle architecture](https://github.com/ggpwnkthx/shuttle/blob/e39d73efc37e0ca75ae5df24136babf56430ebc7/docs/architecture.md).
-- [Hub decision query](https://github.com/ggpwnkthx/hub/blob/4cedcfc48e9bb4eb556d2316eb502e1ab87d3105/src/platform/postgres/decisions.ts).
-- [Hub transaction-scoped tenant isolation](https://github.com/ggpwnkthx/hub/blob/4cedcfc48e9bb4eb556d2316eb502e1ab87d3105/src/platform/postgres/scope.ts).
+- [Shuttle architecture](https://github.com/ggpwnkthx/shuttle/blob/1199d6d350be86b0081cb367e022722649825544/docs/architecture.md).
+- [Shuttle identity signature](https://github.com/ggpwnkthx/shuttle/blob/1199d6d350be86b0081cb367e022722649825544/src/domains/forwarding/identity.ts).
+- [Hub decision query](https://github.com/ggpwnkthx/hub/blob/c52681fb3164ee952df93ae9dec8317dc6f9ce91/src/platform/postgres/decisions.ts).
+- [Hub transaction-scoped tenant isolation](https://github.com/ggpwnkthx/hub/blob/c52681fb3164ee952df93ae9dec8317dc6f9ce91/src/platform/postgres/scope.ts).
 
-A compatibility change requires updating the pinned references and passing the integration suite. Hub's proposed integration changes are implemented in its own repository and must preserve the existing gateway contract.
+A compatibility change requires updating the manifest and passing the integration suite. Hub's integration changes are implemented in its own repository and must preserve the existing gateway contract. The revisions of the earlier baseline are historical evidence of the release `v0.1.0` and they stay in the release notes of this repository: they are not the active baseline.
 
 ### 1.2 Service ownership
 
@@ -80,7 +91,7 @@ Collection metadata may contain semantic labels and descriptions. Widget identif
 
 | Capability | Required behavior |
 | --- | --- |
-| Gateway integration | Verify Shuttle v4 identity signatures and map verified requests to trusted route bindings. |
+| Gateway integration | Verify Shuttle v5 identity signatures with the public key of the gateway, and map verified requests to trusted route bindings. The legacy v4 format is a migration path and it is never the default. |
 | Hub integration | Obtain authoritative, current access context through the proposed contract in section 5. |
 | Workspaces | Maintain workspace-to-tenant ownership and enabled/disabled state. |
 | Registered collections | Load declarative collection manifests backed by reviewed SQL migrations. |
@@ -177,14 +188,25 @@ The deployer provides an immutable binding configuration for each accepted gatew
 | `host` | Exact signed public authority, including a non-default port when applicable. |
 | `upstreamPathPattern` | Backend-received path pattern containing the workspace parameter. |
 | `routeId` | Hub route scope corresponding to the actual Shuttle route. |
-| `identityKeyFile` | File holding the gateway's derived identity-verification key. |
+| `identity` | The verification of the signatures of the route: the expected version, the permitted algorithm, and the file of the key. |
 | `expectedTenantId` | Optional tenant restriction for a tenant-specific gateway. |
+
+The `identity` of a binding names the three values that belong together:
+
+| Version | Algorithm | File of the key | Meaning |
+| --- | --- | --- | --- |
+| `v5` | `ES256` | `publicKeyFile` | The public key of the gateway, on the curve P-256. The gateway holds the private one. |
+| `v4` | `HS256` | `identityKeyFile` | The legacy derived key of the gateway. It is a signing-capable secret and it is a migration path only. |
+
+The version, the algorithm, and the name of the file of the key MUST agree: a binding that names an algorithm that does not belong to its version, or a file of the wrong kind of key, is refused. The backend MUST NOT infer the version, the algorithm, or the key from a request, from a header, or from a fallback after a failed verification. A route of the version `v5` MUST refuse the version `v4`, and a legacy route MUST NOT accept a public key as its secret.
 
 Bindings MUST be unambiguous over the signed host, received path, and verifying key. Configuration ambiguity stops startup.
 
-The file shape is `{"version":1,"bindings":[...]}`, with at most 100 bindings. `host` is a lowercase ASCII DNS authority (punycode where needed) with an explicit port when required. `upstreamPathPattern` contains literal path segments, exactly one `{workspaceId}` segment, and a terminal `/*` remainder; it accepts no executable regex or other substitutions. A typical pattern is `/ws/{workspaceId}/v1/*`; a configured upstream base path appears literally before it. UUID segments cannot contain encoded separators, backslashes, or dot segments. The backend verifies the original signed target bytes before using normalized routing values.
+The file shape is `{"version":2,"bindings":[...]}`, with at most 100 bindings. `host` is a lowercase ASCII DNS authority (punycode where needed) with an explicit port when required. `upstreamPathPattern` contains literal path segments, exactly one `{workspaceId}` segment, and a terminal `/*` remainder; it accepts no executable regex or other substitutions. A typical pattern is `/ws/{workspaceId}/v1/*`; a configured upstream base path appears literally before it. UUID segments cannot contain encoded separators, backslashes, or dot segments. The backend verifies the original signed target bytes before using normalized routing values.
 
-Shuttle v4 does not forward a signed `routeId` or a tenant identifier. The backend MUST derive the route ID from the matching operator-controlled binding. It MUST NOT accept a client-supplied route ID, tenant header, or decoded-but-unverified claim as a substitute.
+The file of the version 1 held one derived identity key per binding. It is still read, as the legacy mode it is, and it is the migration path of a deployment that still shares a key with its gateway. A deployment that writes the version 2 does not use it any more, and the deployment of the key of the gateway is the only way to leave the legacy mode.
+
+Shuttle does not forward a signed `routeId` or a tenant identifier. The backend MUST derive the route ID from the matching operator-controlled binding. It MUST NOT accept a client-supplied route ID, tenant header, or decoded-but-unverified claim as a substitute.
 
 ### 4.2 Identity verification
 
@@ -192,18 +214,20 @@ For each data request, the backend MUST:
 
 1. Identify candidate bindings from the received path and signed forwarded host.
 2. Reject missing, duplicated, malformed, or conflicting required identity headers.
-3. Require `x-shuttle-signature` with the `v4=` prefix.
-4. Reconstruct the exact canonical Shuttle payload using received method, upstream-received path, raw query string, forwarded host, subject, workspace, optional email, and sorted roles.
-5. Verify the detached JWS using the configured derived key, allowing only `HS256` and the expected protected-header type `shuttle-identity`.
+3. Require `x-shuttle-signature` with the `v5=` prefix of the route, and refuse every other version.
+4. Reconstruct the exact canonical Shuttle payload of that version, using received method, upstream-received path, raw query string, forwarded host, subject, workspace, optional email, and sorted roles.
+5. Verify the detached JWS with the public key of the route, allowing only `ES256` and the expected protected-header type `shuttle-identity`. The payload of the signature MUST be detached, and a critical header the backend does not know MUST be refused.
 6. Only after successful verification, validate and normalize the principal/workspace UUIDs.
 7. Require the signed workspace to equal the workspace in the path.
 8. Match exactly one binding and reject a host/path/identity combination outside that binding.
 
 Canonical serialization, field order, role handling, and signature fixtures MUST match the pinned Shuttle contract. Values MUST NOT be normalized before reconstructing the signed bytes.
 
-The backend receives the derived verification key, not `SHUTTLE_SESSION_SECRET`. Because v4 is symmetric, that key is a signing-capable secret and belongs only inside the gateway/upstream trust boundary. Key replacement is a coordinated deployment operation.
+The backend receives the **public** verification key of the gateway, not `SHUTTLE_SESSION_SECRET` and not the private signing key of the gateway. A backend that can verify an identity cannot mint one: the trust boundary is the key and not the network. The key of a route is loaded and validated at startup, and a key that cannot be loaded stops the service.
 
-The v4 signature binds request target and identity. It does not bind the body or provide a timestamp/nonce. The backend MUST NOT present it as an anti-replay mechanism or a substitute for protected transport.
+The legacy format `v4` is the symmetric one: its key is derived from the secret of the sessions of the gateway, it is a signing-capable secret, and it belongs only inside the gateway/upstream trust boundary. It is a migration path: a deployment that configures it is a deployment whose upstream can mint identities. Key replacement is a coordinated deployment operation.
+
+The signature binds request target and identity. It does not bind the body or provide a timestamp/nonce. The backend MUST NOT present it as an anti-replay mechanism or a substitute for protected transport.
 
 ### 4.3 Credential handling
 
@@ -217,7 +241,7 @@ Missing/invalid gateway proof yields `401 UNAUTHENTICATED`. A signed/path worksp
 
 ## 5. Required Hub access-context extension
 
-**Integration status:** Implemented. Hub carries the two endpoints since `4cedcfc48e9bb4eb556d2316eb502e1ab87d3105`, and the pinned Hub baseline of this release is that revision. The change lives in the repository of the hub, not in a copy of this repository; the compatibility harness proves the contract against the real hub.
+**Integration status:** Implemented. Hub carries the two endpoints since `4cedcfc48e9bb4eb556d2316eb502e1ab87d3105`, and the Hub baseline of this release is the revision of the manifest of §1.1, which carries it. The change lives in the repository of the hub, not in a copy of this repository; the compatibility harness proves the contract against the real hub.
 
 The backend MUST NOT substitute Hub's admin API, direct SQL, forwarded roles, or the boolean `/v1/decisions` answer for this contract. Shuttle continues to use its existing decision endpoint.
 
@@ -1020,6 +1044,8 @@ The backend repository publishes a typed client package that:
 
 The OpenAPI document covers the fixed protocol, envelopes, endpoints, and error cases. It describes caller credentials at Shuttle as the external authentication boundary; clients are not instructed to manufacture internal signed headers. Runtime collection metadata covers deployment-specific field definitions. Generated collection types are build artifacts tied to a schema version; they do not replace runtime validation.
 
+The client is the nested package `@data-backend/client` of this repository, and it is not published on a registry: it is distributed as the tarball of the release, whose name is `data-backend-client-<version>.tgz`. The root package of the repository is the service itself, and installing it does not install the client. The release MUST publish a tarball that installs and works outside of this repository, and the continuous integration MUST prove it: the tarball is packed with the command of the release, installed in a consumer outside of the repository, imported through its public name, and called.
+
 Studio consumes the same public APIs as any client. It has no privileged database connection or secret backend shortcut. A future Hub-administration screen requires a separately authorized server-side adapter to Hub's administrative API; that functionality is outside this service's first release.
 
 ## 13. Architecture and code boundaries
@@ -1178,7 +1204,9 @@ No item is complete until its behavior is demonstrated by an appropriate automat
 | --- | --- |
 | Domain unit | Predicate evaluation, field rules, write-check composition, schema validation, context expiry, and event-envelope rules. |
 | HTTP contract | Paths, envelopes, query limits, status/error codes, canonical ETags, idempotency receipts, and absent deferred endpoints. |
-| Shuttle compatibility | Unmodified pinned gateway forwards real requests accepted by backend signature verification; target/header tampering and workspace mismatches fail. |
+| Shuttle compatibility | Unmodified pinned gateway forwards real requests signed with `ES256` and accepted by the backend signature verification against the public key of the gateway; forged signatures, tampered identities and workspace mismatches fail, and the legacy format is refused by a route of the current format. |
+| Client packaging | The tarball of the client installs outside of the repository, the client is imported through its public name, and it resolves its own files without the dependencies of the service. |
+| Baseline drift | The manifest of the baseline, the block of the baseline of the specification, and the workflows agree. |
 | Hub compatibility | Real proposed context implementation returns complete scoped user/group keys and preserves the existing decision contract. |
 | PostgreSQL integration | RLS, composite reference constraints, missing-context denial, pool reuse, concurrent version checks, migration drift, and role restrictions. |
 | Transaction failure | Inject failures at each mutation stage; record/audit/event/receipt are all committed or all absent. |

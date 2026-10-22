@@ -1,57 +1,118 @@
 {
   "comment": "The fixtures are produced by the pinned gateway, with scripts/generate-fixtures.ts.",
-  "shuttleCommit": "e39d73efc37e0ca75ae5df24136babf56430ebc7",
-  "keyBase64": "xPJ9R+Vz3wocjmcdX1Tm36Zf+8aEV+y9PBkYk9nnCIA=",
-  "cases": [
-    {
-      "name": "a read of the list of the articles",
-      "identity": {
-        "subject": "11111111-1111-4111-8111-111111111111",
-        "email": "alice@example.test",
-        "roles": ["member", "editor"],
-        "workspaceId": "22222222-2222-4222-8222-222222222222"
+  "shuttleCommit": "1199d6d350be86b0081cb367e022722649825544",
+  "current": {
+    "version": "v5",
+    "algorithm": "ES256",
+    "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEKcJIHvnZ5M23Wqr7QzZbJLqOzM7L\nmKS+XNPywYFNuVBYEfqe8cT2ooXsucUtBD0dGDiV5t1gt9XTFqE2ZeRUJw==\n-----END PUBLIC KEY-----\n",
+    "cases": [
+      {
+        "name": "a read of the list of the articles",
+        "identity": {
+          "subject": "11111111-1111-4111-8111-111111111111",
+          "email": "alice@example.test",
+          "roles": ["member", "editor"],
+          "workspaceId": "22222222-2222-4222-8222-222222222222"
+        },
+        "request": {
+          "method": "GET",
+          "path": "/ws/22222222-2222-4222-8222-222222222222/v1/items/articles",
+          "query": "",
+          "host": "api.example.test"
+        },
+        "canonicalPayload": "{\"v\":\"v5\",\"method\":\"GET\",\"path\":\"/ws/22222222-2222-4222-8222-222222222222/v1/items/articles\",\"query\":\"\",\"host\":\"api.example.test\",\"subject\":\"11111111-1111-4111-8111-111111111111\",\"workspaceId\":\"22222222-2222-4222-8222-222222222222\",\"email\":\"alice@example.test\",\"roles\":[\"editor\",\"member\"]}",
+        "signature": "v5=eyJhbGciOiJFUzI1NiIsInR5cCI6InNodXR0bGUtaWRlbnRpdHkifQ..QOt4sNm4BpEpJiuZMW6RwaW9Dikdfm5aJDFilmKhzUT6vzgAfn4x9UnB-erqlxuGfr1lOhyA5kftOwiKDoyLIw"
       },
-      "request": {
-        "method": "GET",
-        "path": "/ws/22222222-2222-4222-8222-222222222222/v1/items/articles",
-        "query": "",
-        "host": "api.example.test"
+      {
+        "name": "a write with a filter and a sort",
+        "identity": {
+          "subject": "11111111-1111-4111-8111-111111111111",
+          "roles": ["editor"],
+          "workspaceId": "22222222-2222-4222-8222-222222222222"
+        },
+        "request": {
+          "method": "POST",
+          "path": "/ws/22222222-2222-4222-8222-222222222222/v1/items/articles",
+          "query": "?limit=10&sort=-title",
+          "host": "api.example.test"
+        },
+        "canonicalPayload": "{\"v\":\"v5\",\"method\":\"POST\",\"path\":\"/ws/22222222-2222-4222-8222-222222222222/v1/items/articles\",\"query\":\"?limit=10&sort=-title\",\"host\":\"api.example.test\",\"subject\":\"11111111-1111-4111-8111-111111111111\",\"workspaceId\":\"22222222-2222-4222-8222-222222222222\",\"email\":\"\",\"roles\":[\"editor\"]}",
+        "signature": "v5=eyJhbGciOiJFUzI1NiIsInR5cCI6InNodXR0bGUtaWRlbnRpdHkifQ..BZnESPdfhyMkQdbyMYAAeWcGzWT3Pkzv3TM3e_3y-sn1k03C1kSXvKnj1VBEBikzTgo_ZX4nMiYxSzsWclR9wg"
       },
-      "canonicalPayload": "{\"v\":\"v4\",\"method\":\"GET\",\"path\":\"/ws/22222222-2222-4222-8222-222222222222/v1/items/articles\",\"query\":\"\",\"host\":\"api.example.test\",\"subject\":\"11111111-1111-4111-8111-111111111111\",\"workspaceId\":\"22222222-2222-4222-8222-222222222222\",\"email\":\"alice@example.test\",\"roles\":[\"editor\",\"member\"]}",
-      "signature": "v4=eyJhbGciOiJIUzI1NiIsInR5cCI6InNodXR0bGUtaWRlbnRpdHkifQ..Fet652EwAwtvLrn2S_A7PxgzEBKb9EWA_o0U5izMKhY"
-    },
-    {
-      "name": "a write with a filter and a sort",
-      "identity": {
-        "subject": "11111111-1111-4111-8111-111111111111",
-        "roles": ["editor"],
-        "workspaceId": "22222222-2222-4222-8222-222222222222"
+      {
+        "name": "a request with an upper case host and an email",
+        "identity": {
+          "subject": "33333333-3333-4333-8333-333333333333",
+          "email": "bob@example.test",
+          "roles": [],
+          "workspaceId": "44444444-4444-4444-8444-444444444444"
+        },
+        "request": {
+          "method": "DELETE",
+          "path": "/ws/44444444-4444-4444-8444-444444444444/v1/items/articles/55555555-5555-4555-8555-555555555555",
+          "query": "",
+          "host": "api.example.test:8443"
+        },
+        "canonicalPayload": "{\"v\":\"v5\",\"method\":\"DELETE\",\"path\":\"/ws/44444444-4444-4444-8444-444444444444/v1/items/articles/55555555-5555-4555-8555-555555555555\",\"query\":\"\",\"host\":\"api.example.test:8443\",\"subject\":\"33333333-3333-4333-8333-333333333333\",\"workspaceId\":\"44444444-4444-4444-8444-444444444444\",\"email\":\"bob@example.test\",\"roles\":[]}",
+        "signature": "v5=eyJhbGciOiJFUzI1NiIsInR5cCI6InNodXR0bGUtaWRlbnRpdHkifQ..WbDV4KocycRQ5fN7IQxpHK5Nw4QUBtOQZ-xf7wzcjrWU4maTIqDIhpv6cX19oRPVDtnw_y0fCNRZYn0FVtP29A"
+      }
+    ]
+  },
+  "legacy": {
+    "version": "v4",
+    "algorithm": "HS256",
+    "keyBase64": "xPJ9R+Vz3wocjmcdX1Tm36Zf+8aEV+y9PBkYk9nnCIA=",
+    "cases": [
+      {
+        "name": "a read of the list of the articles",
+        "identity": {
+          "subject": "11111111-1111-4111-8111-111111111111",
+          "email": "alice@example.test",
+          "roles": ["member", "editor"],
+          "workspaceId": "22222222-2222-4222-8222-222222222222"
+        },
+        "request": {
+          "method": "GET",
+          "path": "/ws/22222222-2222-4222-8222-222222222222/v1/items/articles",
+          "query": "",
+          "host": "api.example.test"
+        },
+        "canonicalPayload": "{\"v\":\"v4\",\"method\":\"GET\",\"path\":\"/ws/22222222-2222-4222-8222-222222222222/v1/items/articles\",\"query\":\"\",\"host\":\"api.example.test\",\"subject\":\"11111111-1111-4111-8111-111111111111\",\"workspaceId\":\"22222222-2222-4222-8222-222222222222\",\"email\":\"alice@example.test\",\"roles\":[\"editor\",\"member\"]}",
+        "signature": "v4=eyJhbGciOiJIUzI1NiIsInR5cCI6InNodXR0bGUtaWRlbnRpdHkifQ..Fet652EwAwtvLrn2S_A7PxgzEBKb9EWA_o0U5izMKhY"
       },
-      "request": {
-        "method": "POST",
-        "path": "/ws/22222222-2222-4222-8222-222222222222/v1/items/articles",
-        "query": "?limit=10&sort=-title",
-        "host": "api.example.test"
+      {
+        "name": "a write with a filter and a sort",
+        "identity": {
+          "subject": "11111111-1111-4111-8111-111111111111",
+          "roles": ["editor"],
+          "workspaceId": "22222222-2222-4222-8222-222222222222"
+        },
+        "request": {
+          "method": "POST",
+          "path": "/ws/22222222-2222-4222-8222-222222222222/v1/items/articles",
+          "query": "?limit=10&sort=-title",
+          "host": "api.example.test"
+        },
+        "canonicalPayload": "{\"v\":\"v4\",\"method\":\"POST\",\"path\":\"/ws/22222222-2222-4222-8222-222222222222/v1/items/articles\",\"query\":\"?limit=10&sort=-title\",\"host\":\"api.example.test\",\"subject\":\"11111111-1111-4111-8111-111111111111\",\"workspaceId\":\"22222222-2222-4222-8222-222222222222\",\"email\":\"\",\"roles\":[\"editor\"]}",
+        "signature": "v4=eyJhbGciOiJIUzI1NiIsInR5cCI6InNodXR0bGUtaWRlbnRpdHkifQ..78iwNirWRinB_cVkcAkAcLtLPS7xssQtNcZLSd1QC1E"
       },
-      "canonicalPayload": "{\"v\":\"v4\",\"method\":\"POST\",\"path\":\"/ws/22222222-2222-4222-8222-222222222222/v1/items/articles\",\"query\":\"?limit=10&sort=-title\",\"host\":\"api.example.test\",\"subject\":\"11111111-1111-4111-8111-111111111111\",\"workspaceId\":\"22222222-2222-4222-8222-222222222222\",\"email\":\"\",\"roles\":[\"editor\"]}",
-      "signature": "v4=eyJhbGciOiJIUzI1NiIsInR5cCI6InNodXR0bGUtaWRlbnRpdHkifQ..78iwNirWRinB_cVkcAkAcLtLPS7xssQtNcZLSd1QC1E"
-    },
-    {
-      "name": "a request with an upper case host and an email",
-      "identity": {
-        "subject": "33333333-3333-4333-8333-333333333333",
-        "email": "bob@example.test",
-        "roles": [],
-        "workspaceId": "44444444-4444-4444-8444-444444444444"
-      },
-      "request": {
-        "method": "DELETE",
-        "path": "/ws/44444444-4444-4444-8444-444444444444/v1/items/articles/55555555-5555-4555-8555-555555555555",
-        "query": "",
-        "host": "api.example.test:8443"
-      },
-      "canonicalPayload": "{\"v\":\"v4\",\"method\":\"DELETE\",\"path\":\"/ws/44444444-4444-4444-8444-444444444444/v1/items/articles/55555555-5555-4555-8555-555555555555\",\"query\":\"\",\"host\":\"api.example.test:8443\",\"subject\":\"33333333-3333-4333-8333-333333333333\",\"workspaceId\":\"44444444-4444-4444-8444-444444444444\",\"email\":\"bob@example.test\",\"roles\":[]}",
-      "signature": "v4=eyJhbGciOiJIUzI1NiIsInR5cCI6InNodXR0bGUtaWRlbnRpdHkifQ..WpqAIPnXxUKnl3NrPDLk5a-KBQkaj3C5bv9vKboq984"
-    }
-  ]
+      {
+        "name": "a request with an upper case host and an email",
+        "identity": {
+          "subject": "33333333-3333-4333-8333-333333333333",
+          "email": "bob@example.test",
+          "roles": [],
+          "workspaceId": "44444444-4444-4444-8444-444444444444"
+        },
+        "request": {
+          "method": "DELETE",
+          "path": "/ws/44444444-4444-4444-8444-444444444444/v1/items/articles/55555555-5555-4555-8555-555555555555",
+          "query": "",
+          "host": "api.example.test:8443"
+        },
+        "canonicalPayload": "{\"v\":\"v4\",\"method\":\"DELETE\",\"path\":\"/ws/44444444-4444-4444-8444-444444444444/v1/items/articles/55555555-5555-4555-8555-555555555555\",\"query\":\"\",\"host\":\"api.example.test:8443\",\"subject\":\"33333333-3333-4333-8333-333333333333\",\"workspaceId\":\"44444444-4444-4444-8444-444444444444\",\"email\":\"bob@example.test\",\"roles\":[]}",
+        "signature": "v4=eyJhbGciOiJIUzI1NiIsInR5cCI6InNodXR0bGUtaWRlbnRpdHkifQ..WpqAIPnXxUKnl3NrPDLk5a-KBQkaj3C5bv9vKboq984"
+      }
+    ]
+  }
 }

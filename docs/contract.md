@@ -96,6 +96,16 @@ is the version of the client:
 bun add https://github.com/ggpwnkthx/depot/releases/download/v0.1.0/data-backend-client-0.1.0.tgz
 ```
 
+The root of the repository is the **service**, and it is a different
+package: `bun add github:ggpwnkthx/depot` installs the root package and
+it is not the way to obtain the client. The client is the nested package
+`@data-backend/client`, and it is installed from the tarball of the
+release.
+
+```ts
+import { DataClient } from '@data-backend/client'
+```
+
 The client of a major version talks to the deployment of the same major
 version. The client of `1.x` talks to the deployment of `1.y` for every
 `y >= x`: the deployment never removes a path and never changes the
@@ -164,9 +174,12 @@ manifest is not a part of a major version of the client.
 | The API | `v1` | The path of every route of the data. |
 | The client | `0.1.0` | `packages/client/package.json` and the tarball of the release. |
 | The access context contract | `1` | The discovery of the hub. |
-| The signature of the gateway | `v4` | The header of the identity. |
+| The signature of the gateway | `v5` | The header of the identity. The legacy version `v4` is a migration path. |
 | The format of the manifest | `1` | The `version` of the manifest. |
 | The format of the policy bundle | `1` | The `version` of the bundle. |
 
 The versions of the contract of the hub and of the gateway are the
-versions of the platform, and they are pinned in `SPECS.md`.
+versions of the platform, and they are pinned in `compatibility.json`,
+the manifest of the baseline of the integration. The baseline of the
+documentation and the workflows read it, and the check
+`bun run check:compatibility` proves that they still agree with it.

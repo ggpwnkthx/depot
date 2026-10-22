@@ -6,10 +6,17 @@ The request did not come through the gateway, or the signature does not
 match the request.
 
 - The signature header is `x-shuttle-signature` and its value starts
-  with `v4=`. A signature of another version is refused.
-- The identity key of the binding is the **derived** key of the gateway
-  (`HMAC-SHA256(SHUTTLE_SESSION_SECRET, "shuttle-identity-signature-v1")`),
-  not the secret of the session.
+  with the version of the binding: `v5=` for a route of the current
+  format. A signature of another version is refused, and there is no
+  fallback to another one.
+- The key of the binding is the **public** key of the gateway, a key of
+  the curve P-256 in pem (`publicKeyFile`). A route of the legacy format
+  names the derived key of the gateway
+  (`HMAC-SHA256(SHUTTLE_SESSION_SECRET, "shuttle-identity-signature-v1")`)
+  in `identityKeyFile`, and the backend refuses a pem in that file.
+- The gateway signs with the private key of its pair
+  (`SHUTTLE_IDENTITY_SIGNING_KEY`), and the backend never holds it: a
+  gateway that signs with another key is refused.
 - The signature covers the path and the query **as the upstream received
   them**. A proxy that rewrites the path after the gateway breaks the
   signature: the path of the binding has to be the path the gateway
@@ -50,7 +57,8 @@ The hub is not available, or it does not speak the version of the
 contract.
 
 - The hub is at a revision that carries the extension: a hub before
-  `4cedcfc` does not answer `/v1/access-context`.
+  `4cedcfc` does not answer `/v1/access-context`. The baseline of the
+  hub is the revision of `compatibility.json`.
 - The credential of the access context is the one of the deployment and
   it is scoped to the tenant of the workspace.
 - The clock of the two servers is synchronized within a second: an

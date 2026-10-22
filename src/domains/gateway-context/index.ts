@@ -2,9 +2,9 @@
  * The gateway context domain (spec §4).
  *
  * The domain owns one question: "is this request a request of a trusted
- * gateway, and which route of the gateway is it for". It answers with the
- * verified identity of the caller and with the route scope of the binding
- * that matched.
+ * gateway, and which route of the gateway is it for". It answers with
+ * the verified identity of the caller and with the route scope of the
+ * binding that matched.
  *
  * The domain imports no other domain and no adapter: it reads the
  * bindings and the keys it is given, and it refuses everything it cannot
@@ -18,9 +18,9 @@ import {
   FORWARDED_HOST_HEADER,
   ROLES_HEADER,
   SIGNATURE_HEADER,
-  SIGNATURE_VERSION,
   SUBJECT_HEADER,
   WORKSPACE_HEADER,
+  type IdentityVerification,
   type SignedRequest,
   type WrittenIdentity,
   matchBinding,
@@ -28,8 +28,13 @@ import {
 } from './verify'
 
 export {
+  type IdentitySignatureAlgorithm,
+  type IdentitySignatureVersion,
+  type IdentityVerificationConfig,
   type RouteBinding,
   BINDING_FILE_VERSION,
+  IDENTITY_SIGNATURE_VERSIONS,
+  LEGACY_BINDING_FILE_VERSION,
   MAX_BINDINGS,
   WORKSPACE_PLACEHOLDER,
   isUuid,
@@ -38,11 +43,12 @@ export {
 export {
   EMAIL_HEADER,
   FORWARDED_HOST_HEADER,
+  IDENTITY_SIGNATURE_TYPE,
   ROLES_HEADER,
   SIGNATURE_HEADER,
-  SIGNATURE_VERSION,
   SUBJECT_HEADER,
   WORKSPACE_HEADER,
+  type IdentityVerification,
   type SignedRequest,
   type WrittenIdentity,
   canonicalIdentityPayload,
@@ -69,8 +75,8 @@ export interface GatewayRequest {
 /** A binding with the key that verifies the signatures of its route. */
 export interface ResolvedBinding {
   readonly binding: RouteBinding
-  /** The derived identity key of the gateway of the route. */
-  readonly identityKey: Uint8Array
+  /** The verification of the signatures of the route. */
+  readonly verification: IdentityVerification
 }
 
 /** The identity the domain verified. */
@@ -115,6 +121,12 @@ function singleValue(headers: GatewayHeaders, name: string): string | undefined 
  * Every refusal answers with the same generic error: a caller learns
  * nothing about the bindings, the tenants and the policies of the
  * deployment.
+ *
+ * The order of the checks is the order of the contract: the route is
+ * found first, the version of the signature is the one of that route,
+ * the signature is verified with the key of that route, and the values
+ * of the identity are validated only after the cryptography of the
+ * signature has accepted them.
  */
 export async function verifyGatewayRequest(
   bindings: readonly ResolvedBinding[],
@@ -123,7 +135,7 @@ export async function verifyGatewayRequest(
   const host = singleValue(request.headers, FORWARDED_HOST_HEADER)?.toLowerCase()
   if (!host) reject()
   const signature = singleValue(request.headers, SIGNATURE_HEADER)
-  if (!signature?.startsWith(`${SIGNATURE_VERSION}=`)) reject()
+  if (!signature) reject()
   const subject = singleValue(request.headers, SUBJECT_HEADER)
   if (!subject) reject()
   const signedWorkspace = singleValue(request.headers, WORKSPACE_HEADER)
@@ -144,11 +156,17 @@ export async function verifyGatewayRequest(
     request.path
   )
   if (!match) reject()
-  // The workspace of the path and the workspace of the signature are the
-  // same workspace: a request that names another one is refused.
-  if (signedWorkspace !== match.workspaceId) reject()
-  if (!isUuid(match.workspaceId)) reject()
-  if (!isUuid(subject)) reject()
+
+  const resolved = bindings.find(
+    (entry) => entry.binding.id === match.binding.id && entry.binding.host === host
+  )
+  if (!resolved) reject()
+
+  // The version of the signature is the one of the route, and it is not
+  // read from the request: a route that expects the version `v5` refuses
+  // the version `v4` and the other way round, and there is no fallback
+  // after a refused signature.
+  if (!signature.startsWith(`${resolved.verification.version}=`)) reject()
 
   const identity: WrittenIdentity = {
     subject,
@@ -163,17 +181,21 @@ export async function verifyGatewayRequest(
     host,
   }
 
-  const resolved = bindings.find(
-    (entry) => entry.binding.id === match.binding.id && entry.binding.host === host
-  )
-  if (!resolved) reject()
   const valid = await verifyIdentitySignature(
     identity,
     signedRequest,
-    resolved.identityKey,
+    resolved.verification,
     signature
   )
   if (!valid) reject()
+
+  // The values of the identity are validated only after the signature
+  // has been verified: an unsigned request never reaches this point.
+  if (!isUuid(match.workspaceId)) reject()
+  if (!isUuid(subject)) reject()
+  // The workspace of the path and the workspace of the signature are the
+  // same workspace: a request that names another one is refused.
+  if (signedWorkspace !== match.workspaceId) reject()
 
   return {
     subject,

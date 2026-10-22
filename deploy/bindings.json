@@ -1,12 +1,16 @@
 {
-  "version": 1,
+  "version": 2,
   "bindings": [
     {
       "id": "data-api",
       "host": "api.shuttle.test",
       "upstreamPathPattern": "/ws/{workspaceId}/v1/*",
       "routeId": "data-api",
-      "identityKeyFile": "/run/secrets/identity.key"
+      "identity": {
+        "version": "v5",
+        "algorithm": "ES256",
+        "publicKeyFile": "/run/secrets/identity.public.pem"
+      }
     }
   ]
 }

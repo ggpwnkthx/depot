@@ -48,6 +48,20 @@ docker pull ghcr.io/ggpwnkthx/depot:0.1.0
 bun add https://github.com/ggpwnkthx/depot/releases/download/v0.1.0/data-backend-client-0.1.0.tgz
 ```
 
+The root of the repository and the client are two different packages:
+`bun add github:ggpwnkthx/depot` installs the **root** package, the
+service itself, and it is not the way to obtain the client. The client
+is the nested package `@data-backend/client`, and the release publishes
+it as a tarball:
+
+```ts
+import { DataClient } from '@data-backend/client'
+```
+
+The check of the packaging proves it: `bun run check:client-package`
+packs the client with the command of the release, installs the tarball
+in a consumer outside of the repository, and calls the API with it.
+
 The binaries are archives that hold the executable, the manifests of the
 collections, the policies and the migrations of the deployment, next to
 each other. The checksums of every asset are in `checksums.txt`, in the
@@ -84,6 +98,8 @@ deployment on every record.
 | `bun test test/contract` | The contract of the HTTP API. |
 | `bun test test/integration` | The database, the transactions and the worker. |
 | `bun test packages/client/test` | The consumer of the typed client. |
+| `bun run check:client-package` | The packed client, installed outside of the repository. |
+| `bun run check:compatibility` | The baseline of the documentation against the manifest. |
 | `bun run test:compat` | The real gateway, the real hub and the real backend. |
 | `bun run scripts/capacity.ts` | The latency of the service on a development machine. |
 | `bun run scripts/scale.ts` | The plan of the statements, and the pagination, on a large collection. |
@@ -94,18 +110,27 @@ The integration tests and the compatibility harness need a PostgreSQL
 server. The tests start one themselves in `.pg/test-data`; the harness
 starts one in a temporary directory.
 
-The harness clones the gateway and the hub at their pinned revisions. It
-takes them from the network when it can, and it takes them from local
-checkouts when it cannot:
+The harness clones the gateway and the hub at the revisions of the
+baseline, the ones of `compatibility.json`, the one file of this
+repository that owns them. It takes them from the network when it can,
+and it takes them from local checkouts when it cannot:
 
 ```bash
 SHUTTLE_REPOSITORY=/srv/mirrors/shuttle HUB_REPOSITORY=/srv/mirrors/hub bun run test:compat
 ```
 
-A repository that is a path on the disk is cloned from that path, and
-the clone of a local path does not use the network. `COMPAT_MIRROR`
-names a directory that holds the bare mirrors `shuttle.git` and `hub.git`,
-and the harness uses them when the network is not there.
+The order of the sources is the one of the list: an explicit repository
+wins over a mirror, and a mirror wins over the url of the manifest. A
+repository that is a path on the disk is cloned from that path, and the
+clone of a local path does not use the network. `COMPAT_MIRROR` names a
+directory that holds the bare mirrors `shuttle.git` and `hub.git`, and
+the harness uses them when the network is not there. A url with or
+without the suffix `.git` names the same mirror.
+
+`SHUTTLE_COMMIT` and `HUB_COMMIT` name another revision: a run with an
+override is a run of a candidate, and the harness says that it is not
+the proof of the baseline. An override that is not a full revision is an
+error, and the harness never falls back to another source.
 
 ## The development machine
 
@@ -121,26 +146,80 @@ bun run start
 
 The service reads the bindings of the gateway from
 `DATA_SHUTTLE_BINDINGS_FILE`. The file holds the routes the deployment
-accepts and the file of the derived identity key of every route:
+accepts, and the verification of the identity of every route: the
+version of the signature, the algorithm, and the file of the key.
 ```json
 {
-  "version": 1,
+  "version": 2,
   "bindings": [
     {
       "id": "data-api",
       "host": "api.shuttle.test",
       "upstreamPathPattern": "/ws/{workspaceId}/v1/*",
       "routeId": "data-api",
-      "identityKeyFile": "./secrets/identity.key"
+      "identity": {
+        "version": "v5",
+        "algorithm": "ES256",
+        "publicKeyFile": "./secrets/identity.public.pem"
+      }
     }
   ]
 }
 ```
 
-The identity key is the **derived** key of the gateway
+The key of a route is the **public** key of the gateway: a key of the
+curve P-256, in pem. The gateway holds the private one and signs the
+identity with it, and the backend verifies with the public one. A
+backend that can verify an identity cannot mint one.
+
+The gateway generates the pair with `bun run identity:key`: the private
+key goes to the secret store of the deployment and to
+`SHUTTLE_IDENTITY_SIGNING_KEY`, and the public key goes to the file of
+the binding. The backend never holds the private key and never holds
+`SHUTTLE_SESSION_SECRET`.
+
+### The migration from the shared key
+
+The previous format, `v4`, is symmetric: the backend held the key that
+is derived from the secret of the sessions of the gateway
 (`HMAC-SHA256(SHUTTLE_SESSION_SECRET, "shuttle-identity-signature-v1")`),
-in base64. It is a signing capable secret: it belongs inside the trust
-boundary of the gateway and it is never in the repository.
+and an upstream that could verify an identity could mint one.
+
+The migration is a change of the deployment of the gateway and of the
+deployment of the backend, and it happens in this order:
+
+1. The gateway is given the private key of a new pair, and it signs
+   with it. The old derived key still works for the upstreams that
+   have not changed yet.
+2. The backend is given the public key of the pair, in a binding of the
+   version 2. It refuses the version `v4` from that moment: a route
+   verifies one version, and it never falls back to another one.
+3. The deployments that still share the derived key stay on the file of
+   the version 1 of the bindings, which is read as the legacy mode it
+   is. A deployment that leaves the legacy mode deletes the derived key
+   of its secret store.
+
+A binding of the legacy mode names the version, the algorithm, and the
+file of the key explicitly:
+
+```json
+{
+  "version": 2,
+  "bindings": [
+    {
+      "id": "data-api",
+      "host": "api.shuttle.test",
+      "upstreamPathPattern": "/ws/{workspaceId}/v1/*",
+      "routeId": "data-api",
+      "identity": {
+        "version": "v4",
+        "algorithm": "HS256",
+        "identityKeyFile": "./secrets/identity.key"
+      }
+    }
+  ]
+}
+```
 
 ## The catalog of a workspace
 
@@ -200,7 +279,7 @@ integration and deployment dependency**: a hub that does not answer
 closed without it.
 
 The extension is **upstream**: hub carries it since `4cedcfc`, and the
-pinned hub of the baseline is that revision. The depot holds no copy of
-the change: a contract of the platform lives in the repository of the
-platform, and the compatibility harness proves the contract against the
-real hub.
+baseline of the hub is the revision of `compatibility.json`. The depot
+holds no copy of the change: a contract of the platform lives in the
+repository of the platform, and the compatibility harness proves the
+contract against the real hub.

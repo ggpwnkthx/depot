@@ -2,15 +2,14 @@
 /**
  * The compatibility harness (spec §16 and §17).
  *
- * The harness runs the **real** pinned gateway, the **real** extended
- * hub and the **real** backend of this repository, against a real
- * PostgreSQL server, and it performs the acceptance scenario through the
- * gateway.
+ * The harness runs the **real** pinned gateway, the **real** hub and the
+ * **real** backend of this repository, against a real PostgreSQL server,
+ * and it performs the acceptance scenario through the gateway.
  *
- * The hub is the extended one: the pinned hub carries the extension of
- * the access context contract since `4cedcfc`, and the harness checks
- * the contract against it directly. The gateway is the pinned one and it
- * is never modified.
+ * The revisions are the ones of the manifest `compatibility.json`, the
+ * one file of this repository that owns the repositories and the
+ * revisions of the baseline. The gateway and the hub are cloned at those
+ * revisions and they are never modified.
  *
  * The commands:
  *
@@ -18,33 +17,42 @@
  *
  * The environment:
  *
- *   SHUTTLE_REPOSITORY  the repository of the gateway (default: github)
- *   HUB_REPOSITORY      the repository of the hub (default: github)
+ *   SHUTTLE_REPOSITORY  the repository of the gateway: a git url or the
+ *                       path of a local repository (default: the url of
+ *                       the manifest)
+ *   HUB_REPOSITORY      the repository of the hub (default: the url of
+ *                       the manifest)
+ *   SHUTTLE_COMMIT      the revision of the gateway (default: the
+ *                       revision of the manifest)
+ *   HUB_COMMIT          the revision of the hub (default: the revision
+ *                       of the manifest)
+ *   COMPAT_MIRROR       a directory that holds the bare mirrors
+ *                       `shuttle.git` and `hub.git`
  *   COMPAT_KEEP         when it is set, the temporary directory is kept
+ *
+ * The order of the sources is the one of the list: an explicit
+ * repository wins over a mirror, and a mirror wins over the url of the
+ * manifest. An override that is set and that cannot be used is an
+ * error: the harness never falls back to another source. A run with an
+ * override is a run of a candidate, and it is not the proof of the
+ * baseline of the manifest.
  */
 
 import { spawn, spawnSync, type Subprocess } from 'bun'
-import { existsSync } from 'node:fs'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createHmac } from 'node:crypto'
+import { generateKeyPairSync } from 'node:crypto'
 import { Client } from 'pg'
 import { startPostgres, type StartedPostgres } from './postgres'
 import { freePort } from './postgres'
 import { applyMigrations, loadMigrations } from '../src/platform/postgres/migrations'
 import { ConnectionPool } from '../src/platform/postgres/database'
+import { readCompatibilityManifest, selectBaseline } from './compatibility-manifest'
+import { assertCleanCheckout, cloneAtRevision, sourceOf } from './compatibility-git'
 
-/** The commit of the gateway. */
-const SHUTTLE_COMMIT = process.env.SHUTTLE_COMMIT ?? 'e39d73efc37e0ca75ae5df24136babf56430ebc7'
-/** The commit of the hub. It carries the extension of the access context. */
-const HUB_COMMIT = process.env.HUB_COMMIT ?? '4cedcfc48e9bb4eb556d2316eb502e1ab87d3105'
-/** The repository of the gateway. */
-const SHUTTLE_REPOSITORY = process.env.SHUTTLE_REPOSITORY ?? 'https://github.com/ggpwnkthx/shuttle'
-/** The repository of the hub. */
-const HUB_REPOSITORY = process.env.HUB_REPOSITORY ?? 'https://github.com/ggpwnkthx/hub'
 /**
- * The directory of the local mirrors.
+ * The directory of the mirrors.
  *
  * The harness needs the pinned revisions of the gateway and of the hub.
  * It fetches them from the network when it can, and it takes them from
@@ -106,47 +114,9 @@ async function waitFor(url: string, timeoutMs = 60_000): Promise<void> {
   throw new Error(`the service at ${url} did not answer`)
 }
 
-/** Clones a repository at a commit. */
-function clone(repository: string, commit: string, directory: string): void {
-  const source = sourceOf(repository)
-  const clone = spawnSync(['git', 'clone', '--quiet', source, directory])
-  if (clone.exitCode !== 0) {
-    throw new Error(
-      `the clone of ${source} failed: ${clone.stderr.toString()}. ` +
-        `Set SHUTTLE_REPOSITORY or HUB_REPOSITORY to a local checkout that holds ${commit}, ` +
-        'or set COMPAT_MIRROR to a directory that holds the bare mirrors.'
-    )
-  }
-  const checkout = spawnSync(['git', 'checkout', '--quiet', commit], { cwd: directory })
-  if (checkout.exitCode !== 0) {
-    throw new Error(
-      `the checkout of ${commit} failed: ${checkout.stderr.toString()}. ` +
-        `The source ${source} does not hold the pinned revision.`
-    )
-  }
-}
-
-/**
- * The source of a clone.
- *
- * A repository that is a path on the disk is used as it is: the clone of
- * a local path does not use the network. When the path is not there, the
- * mirror of the harness is used, if it holds the repository. The url is
- * the last resort.
- */
-function sourceOf(repository: string): string {
-  if (existsSync(repository)) return repository
-  if (COMPAT_MIRROR) {
-    const name = repository.split('/').pop() ?? ''
-    const mirror = join(COMPAT_MIRROR, `${name}.git`)
-    if (existsSync(mirror)) return mirror
-  }
-  return repository
-}
-
 /** Installs the dependencies of a checkout. */
 function install(directory: string): void {
-  const result = spawnSync(['bun', 'install'], { cwd: directory })
+  const result = spawnSync(['bun', 'install', '--frozen-lockfile'], { cwd: directory })
   if (result.exitCode !== 0) {
     throw new Error(`the installation of ${directory} failed: ${result.stderr.toString()}`)
   }
@@ -230,17 +200,42 @@ async function main(): Promise<void> {
     }
     await rm(workspace, { recursive: true, force: true })
   }
+  // The harness owns its processes and its directory: an interruption
+  // does not leave a gateway behind.
+  const onSignal = (): void => {
+    void stop().finally(() => process.exit(130))
+  }
+  process.on('SIGINT', onSignal)
+  process.on('SIGTERM', onSignal)
 
   try {
-    // 1. The reference checkouts.
+    // 1. The baseline and the reference checkouts.
+    const manifest = await readCompatibilityManifest()
+    const baseline = selectBaseline(manifest, process.env)
+    step(`the baseline of the gateway is ${baseline.shuttle.url} at ${baseline.shuttle.commit}`)
+    step(`the baseline of the hub is ${baseline.hub.url} at ${baseline.hub.commit}`)
+    if (!baseline.isBaseline) {
+      step(
+        `the run is a candidate: ${baseline.overrides.join(', ')} override the manifest, ` +
+          'and it is not the proof of the baseline of compatibility.json'
+      )
+    }
+
+    const shuttleSource = sourceOf(baseline.shuttle.url, COMPAT_MIRROR)
+    const hubSource = sourceOf(baseline.hub.url, COMPAT_MIRROR)
     const shuttleDirectory = join(workspace, 'shuttle')
     const hubDirectory = join(workspace, 'hub')
-    step(`the gateway is cloned at ${SHUTTLE_COMMIT}`)
-    clone(SHUTTLE_REPOSITORY, SHUTTLE_COMMIT, shuttleDirectory)
-    step(`the hub is cloned at ${HUB_COMMIT}`)
-    clone(HUB_REPOSITORY, HUB_COMMIT, hubDirectory)
+    step(`the gateway is cloned from ${shuttleSource} at ${baseline.shuttle.commit}`)
+    cloneAtRevision(shuttleSource, baseline.shuttle.commit, shuttleDirectory)
+    step(`the hub is cloned from ${hubSource} at ${baseline.hub.commit}`)
+    cloneAtRevision(hubSource, baseline.hub.commit, hubDirectory)
     install(shuttleDirectory)
     install(hubDirectory)
+    // The installations do not change the tracked files of the
+    // references: the harness tests the revision of the manifest.
+    assertCleanCheckout(shuttleDirectory)
+    assertCleanCheckout(hubDirectory)
+    step('the references are installed and their tracked files are the ones of the commit')
 
     // 2. The database.
     postgres = await startPostgres({
@@ -278,7 +273,6 @@ async function main(): Promise<void> {
     const runtimeUrl = `postgres://data_runtime:${ROLE_PASSWORDS.runtime}@127.0.0.1:${postgres.port}/depot_compat`
     const registryUrl = `postgres://data_registry:${ROLE_PASSWORDS.registry}@127.0.0.1:${postgres.port}/depot_compat`
     const deliveryUrl = `postgres://data_delivery:${ROLE_PASSWORDS.delivery}@127.0.0.1:${postgres.port}/depot_compat`
-    const _maintenanceUrl = `postgres://data_maintenance:${ROLE_PASSWORDS.maintenance}@127.0.0.1:${postgres.port}/depot_compat`
 
     // 3. The migrations of the backend.
     const ownerPool = new ConnectionPool({
@@ -480,22 +474,6 @@ async function main(): Promise<void> {
       'PUT'
     )
     step('the fixtures of the hub are written')
-    const debugDecision = await fetch(`${hubUrl}/v1/decisions`, {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${HUB_ACCESS_TOKEN}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        subject: principalId,
-        workspaceId: WORKSPACE_ID,
-        routeId: 'data-api',
-        roles: ['member'],
-      }),
-    })
-    if (debugDecision.status !== 200) {
-      throw new Error('the decision of the hub failed')
-    }
 
     // 6. The registry of the backend.
     const owner = new Client({ connectionString: ownerUrl })
@@ -509,24 +487,32 @@ async function main(): Promise<void> {
     await owner.end()
     step('the registry of the backend knows the workspaces')
 
-    // 7. The identity key of the gateway and the configuration of the backend.
-    const identityKey = createHmac('sha256', SESSION_SECRET)
-      .update('shuttle-identity-signature-v1')
-      .digest()
-    const identityKeyFile = join(workspace, 'identity.key')
-    await writeFile(identityKeyFile, identityKey.toString('base64'))
+    // 7. The key of the identity of the gateway.
+    //
+    // The pair is ephemeral: the gateway holds the private key and it
+    // signs the identity with it, and the backend holds the public key
+    // and verifies with it. The backend never holds the private key and
+    // the gateway never holds the public one of the verification.
+    const pair = generateKeyPairSync('ec', {
+      namedCurve: 'P-256',
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+    })
+    const privateKeyPem = pair.privateKey.toString()
+    const publicKeyFile = join(workspace, 'identity.public.pem')
+    await writeFile(publicKeyFile, pair.publicKey.toString())
     const bindingsFile = join(workspace, 'bindings.json')
     await writeFile(
       bindingsFile,
       JSON.stringify({
-        version: 1,
+        version: 2,
         bindings: [
           {
             id: 'data-api',
             host: HOST,
             upstreamPathPattern: '/ws/{workspaceId}/v1/*',
             routeId: 'data-api',
-            identityKeyFile,
+            identity: { version: 'v5', algorithm: 'ES256', publicKeyFile },
           },
         ],
       })
@@ -557,6 +543,7 @@ async function main(): Promise<void> {
         DATA_CURSOR_KEY_FILE: cursorKeyFile,
         DATA_WORKER_PRINCIPAL_ID: principalId,
         DATA_WORKER_ROUTE_ID: 'data-worker',
+        DATA_CONTEXT_CACHE_TTL_MS: '0',
         DATA_LOG_LEVEL: 'info',
         DATA_ENVIRONMENT: 'development',
       },
@@ -574,7 +561,7 @@ async function main(): Promise<void> {
       )
       throw error
     }
-    step('the backend is ready')
+    step('the backend is ready with the public key of the gateway')
 
     // 8. The identity provider and the gateway.
     const oidc = await import(join(shuttleDirectory, 'services/oidc-provider.ts'))
@@ -609,6 +596,9 @@ async function main(): Promise<void> {
             upstream: backendUrl,
             auth: { mode: 'any', workspace: { param: 'workspaceId', requireUuid: true } },
             forwardAuthorization: false,
+            // The decision of the access service is not cached: a
+            // revocation is immediate.
+            accessCacheTtlMs: 0,
           },
         ],
       })
@@ -627,6 +617,10 @@ async function main(): Promise<void> {
         SHUTTLE_ACCESS_URL: hubUrl,
         SHUTTLE_ACCESS_TOKEN: HUB_ACCESS_TOKEN,
         SHUTTLE_SESSION_SECRET: SESSION_SECRET,
+        // The private key of the deployment of the gateway: it signs the
+        // identity of the request, and the upstream verifies it with the
+        // public one.
+        SHUTTLE_IDENTITY_SIGNING_KEY: privateKeyPem,
         SHUTTLE_SESSION_URL: 'memory://local',
         SHUTTLE_ALLOW_MEMORY_STATE: 'true',
         SHUTTLE_COOKIE_SECURE: 'false',
@@ -636,7 +630,7 @@ async function main(): Promise<void> {
     })
     processes.push(gateway.process)
     await waitFor(`${gatewayUrl}/healthz`)
-    step('the pinned gateway is ready')
+    step('the pinned gateway is ready with the private key of the identity')
 
     // 9. The login of the caller, through the gateway.
     const jar = new CookieJar()
@@ -860,13 +854,28 @@ async function main(): Promise<void> {
     }
     step('the existing decision of the gateway still works')
 
-    // 12. The tampering, directly against the backend.
+    // 12. The refusals of the backend, with the signatures of the gateway.
+    //
+    // The signatures of these requests come from the signer of the
+    // pinned gateway: the fixture is the code of the gateway and not a
+    // copy of it.
+    const gatewayIdentity = await import(
+      join(shuttleDirectory, 'src/domains/forwarding/identity.ts')
+    )
+    const signingKey = gatewayIdentity.asymmetricIdentityKey(privateKeyPem)
+    const signedRequest = (
+      identity: { subject: string; email?: string; roles: string[]; workspaceId?: string },
+      path: string,
+      query = ''
+    ): Promise<string> =>
+      gatewayIdentity.signIdentity(identity, { method: 'GET', path, query, host: HOST }, signingKey)
+
     const forged = await fetch(`${backendUrl}/ws/${WORKSPACE_ID}/v1/items/articles`, {
       headers: {
         'x-forwarded-host': HOST,
-        'x-shuttle-user': '11111111-1111-4111-8111-111111111111',
+        'x-shuttle-user': principalId,
         'x-shuttle-workspace': WORKSPACE_ID,
-        'x-shuttle-signature': 'v4=eyJhbGciOiJIUzI1NiIsInR5cCI6InNodXR0bGUtaWRlbnRpdHkifQ..AAAA',
+        'x-shuttle-signature': 'v5=eyJhbGciOiJFUzI1NiIsInR5cCI6InNodXR0bGUtaWRlbnRpdHkifQ..AAAA',
       },
     })
     if (forged.status !== 401) {
@@ -875,7 +884,7 @@ async function main(): Promise<void> {
     const withoutSignature = await fetch(`${backendUrl}/ws/${WORKSPACE_ID}/v1/items/articles`, {
       headers: {
         'x-forwarded-host': HOST,
-        'x-shuttle-user': '11111111-1111-4111-8111-111111111111',
+        'x-shuttle-user': principalId,
         'x-shuttle-workspace': WORKSPACE_ID,
       },
     })
@@ -884,12 +893,152 @@ async function main(): Promise<void> {
     }
     step('a forged or missing signature is refused')
 
+    // A signature of another key: the pair of the attacker is not the
+    // key of the gateway.
+    const attacker = generateKeyPairSync('ec', {
+      namedCurve: 'P-256',
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+    })
+    const attackerKey = gatewayIdentity.asymmetricIdentityKey(attacker.privateKey.toString())
+    const attackerSignature = await gatewayIdentity.signIdentity(
+      { subject: principalId, roles: ['member'], workspaceId: WORKSPACE_ID },
+      { method: 'GET', path: `/ws/${WORKSPACE_ID}/v1/items/articles`, query: '', host: HOST },
+      attackerKey
+    )
+    const forgedByAnotherKey = await fetch(`${backendUrl}/ws/${WORKSPACE_ID}/v1/items/articles`, {
+      headers: {
+        'x-forwarded-host': HOST,
+        'x-shuttle-user': principalId,
+        'x-shuttle-workspace': WORKSPACE_ID,
+        'x-shuttle-roles': 'member',
+        'x-shuttle-signature': attackerSignature,
+      },
+    })
+    if (forgedByAnotherKey.status !== 401) {
+      throw new Error(`a signature of another key was accepted: ${forgedByAnotherKey.status}`)
+    }
+    step('a signature of another key is refused')
+
+    // A tampered identity: the signature is the one of the gateway and
+    // the header carries another subject.
+    const tampered = await signedRequest(
+      { subject: principalId, roles: ['member'], workspaceId: WORKSPACE_ID },
+      `/ws/${WORKSPACE_ID}/v1/items/articles`
+    )
+    const tamperedIdentity = await fetch(`${backendUrl}/ws/${WORKSPACE_ID}/v1/items/articles`, {
+      headers: {
+        'x-forwarded-host': HOST,
+        'x-shuttle-user': '11111111-1111-4111-8111-111111111111',
+        'x-shuttle-workspace': WORKSPACE_ID,
+        'x-shuttle-roles': 'member',
+        'x-shuttle-signature': tampered,
+      },
+    })
+    if (tamperedIdentity.status !== 401) {
+      throw new Error(`a tampered identity was accepted: ${tamperedIdentity.status}`)
+    }
+    step('a tampered identity is refused')
+
+    // A workspace that does not agree with the path: the signature is a
+    // real one and it names another workspace.
+    const mismatch = await signedRequest(
+      { subject: principalId, roles: ['member'], workspaceId: OTHER_WORKSPACE_ID },
+      `/ws/${WORKSPACE_ID}/v1/items/articles`
+    )
+    const mismatchRequest = await fetch(`${backendUrl}/ws/${WORKSPACE_ID}/v1/items/articles`, {
+      headers: {
+        'x-forwarded-host': HOST,
+        'x-shuttle-user': principalId,
+        'x-shuttle-workspace': OTHER_WORKSPACE_ID,
+        'x-shuttle-roles': 'member',
+        'x-shuttle-signature': mismatch,
+      },
+    })
+    if (mismatchRequest.status !== 401) {
+      throw new Error(
+        `a workspace that does not agree with the path was accepted: ${mismatchRequest.status}`
+      )
+    }
+    step('a workspace that does not agree with the path is refused')
+
+    // The legacy format is refused by a route of the current format.
+    const legacySignature = gatewayIdentity.signIdentity(
+      { subject: principalId, roles: ['member'], workspaceId: WORKSPACE_ID },
+      { method: 'GET', path: `/ws/${WORKSPACE_ID}/v1/items/articles`, query: '', host: HOST },
+      gatewayIdentity.symmetricIdentityKey(SESSION_SECRET)
+    )
+    const legacyRequest = await fetch(`${backendUrl}/ws/${WORKSPACE_ID}/v1/items/articles`, {
+      headers: {
+        'x-forwarded-host': HOST,
+        'x-shuttle-user': principalId,
+        'x-shuttle-workspace': WORKSPACE_ID,
+        'x-shuttle-roles': 'member',
+        'x-shuttle-signature': await legacySignature,
+      },
+    })
+    if (legacyRequest.status !== 401) {
+      throw new Error(
+        `the legacy signature was accepted by a current route: ${legacyRequest.status}`
+      )
+    }
+    step('the legacy signature is refused by a route of the current format')
+
+    // 13. The revocation of a grant is immediate.
+    const grants = await fetch(
+      `${hubUrl}/v1/admin/grants?tenant=${TENANT_SLUG}&userId=${principalId}`,
+      {
+        headers: { authorization: `Bearer ${HUB_ADMIN_TOKEN}` },
+      }
+    )
+    const grantsBody = (await grants.json()) as {
+      grants?: {
+        id: string
+        permission: string
+        workspaceId: string | null
+        routeId: string | null
+        revokedAt: string | null
+      }[]
+    }
+    // The grant of the route of the api: the grant of the worker is the
+    // one of another route and it does not change this one.
+    const readerGrant = (grantsBody.grants ?? []).find(
+      (grant) =>
+        grant.permission === 'content.reader' &&
+        grant.workspaceId === WORKSPACE_ID &&
+        grant.routeId === 'data-api' &&
+        !grant.revokedAt
+    )
+    if (!readerGrant) {
+      throw new Error('the grant of the reader was not found in the hub')
+    }
+    const revoked = await fetch(`${hubUrl}/v1/admin/grants/${readerGrant.id}`, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${HUB_ADMIN_TOKEN}` },
+    })
+    if (revoked.status !== 204) {
+      throw new Error(`the revocation of the grant failed: ${revoked.status}`)
+    }
+    const afterRevocation = await call(`/ws/${WORKSPACE_ID}/v1/items/articles/${articleId}`)
+    if (afterRevocation.status !== 403 && afterRevocation.status !== 401) {
+      throw new Error(`a revoked principal was still served: ${afterRevocation.status}`)
+    }
+    step('a revoked grant is refused at once')
+
+    // 14. The references are the ones of the baseline, untouched.
+    assertCleanCheckout(shuttleDirectory)
+    assertCleanCheckout(hubDirectory)
+    step('the references are unchanged: the harness never modifies them')
+
     await idp.stop()
     console.log(
       JSON.stringify({
         level: 'info',
         msg: 'the compatibility harness passed',
         steps: steps.length,
+        shuttle: baseline.shuttle.commit,
+        hub: baseline.hub.commit,
+        baseline: baseline.isBaseline,
       })
     )
   } finally {

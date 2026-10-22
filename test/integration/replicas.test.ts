@@ -5,7 +5,14 @@ import { join } from 'node:path'
 import { createRuntime, type Runtime } from '../../src/runtime/composition'
 import { testDatabase, type TestDatabase } from '../helpers/database'
 import { startFakeHub, type FakeHub } from '../helpers/hub'
-import { HOST, IDENTITY_KEY, PRINCIPAL_ID, TENANT_ID, WORKSPACE_ID, sign } from '../helpers/harness'
+import {
+  HOST,
+  IDENTITY_PUBLIC_PEM,
+  PRINCIPAL_ID,
+  TENANT_ID,
+  WORKSPACE_ID,
+  sign,
+} from '../helpers/harness'
 
 /**
  * Two replicas of the service against one database.
@@ -34,20 +41,22 @@ beforeAll(async () => {
   ])
 
   workspace = await mkdtemp(join(tmpdir(), 'depot-replicas-'))
-  const identityKeyFile = join(workspace, 'identity.key')
-  await writeFile(identityKeyFile, Buffer.from(IDENTITY_KEY).toString('base64'))
+  // The key of the route is the public key of the gateway: the backend
+  // verifies with it and it never holds the private one.
+  const publicKeyFile = join(workspace, 'identity.public.pem')
+  await writeFile(publicKeyFile, IDENTITY_PUBLIC_PEM)
   const bindingsFile = join(workspace, 'bindings.json')
   await writeFile(
     bindingsFile,
     JSON.stringify({
-      version: 1,
+      version: 2,
       bindings: [
         {
           id: 'data-api',
           host: HOST,
           upstreamPathPattern: '/ws/{workspaceId}/v1/*',
           routeId: 'data-api',
-          identityKeyFile,
+          identity: { version: 'v5', algorithm: 'ES256', publicKeyFile },
         },
       ],
     })
@@ -108,8 +117,7 @@ async function request(
     PRINCIPAL_ID,
     workspaceId,
     ['member'],
-    undefined,
-    IDENTITY_KEY
+    undefined
   )
   const headers = new Headers(options.headers ?? {})
   headers.set('x-forwarded-host', HOST)

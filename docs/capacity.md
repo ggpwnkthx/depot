@@ -11,8 +11,9 @@ hardware.
 The command starts a complete deployment of the development machine: a
 PostgreSQL server, a hub of the fixtures, the backend and a load of
 concurrent clients. The clients speak the protocol of the gateway: they
-sign their requests with the derived identity key, exactly like the
-pinned gateway does.
+sign their requests with the private key of the pair of the identity,
+exactly like the pinned gateway does, and the backend verifies them with
+the public one.
 
 ```bash
 bun run scripts/capacity.ts

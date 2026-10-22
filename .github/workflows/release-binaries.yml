@@ -80,7 +80,10 @@ jobs:
           echo "the image and the package are the version $version"
 
       # The client of the release: it is not published on a registry, so
-      # the tarball of the release is what a consumer installs.
+      # the tarball of the release is what a consumer installs. The
+      # check of the packaging installs the tarball in a consumer
+      # outside of this repository and calls the API with it: a tarball
+      # that nobody can install is not a release.
       - name: the client of the release
         run: |
           set -euo pipefail
@@ -88,6 +91,12 @@ jobs:
           (cd packages/client && bun pm pack --destination "$RUNNER_TEMP/client")
           ls -la "$RUNNER_TEMP/client"
           test -n "$(ls "$RUNNER_TEMP/client"/*.tgz)"
+          version=$(node -p "require('./packages/client/package.json').version")
+          test -f "$RUNNER_TEMP/client/data-backend-client-$version.tgz"
+          echo "the tarball of the release is data-backend-client-$version.tgz"
+
+      - name: the packaged client works outside of the repository
+        run: bun run check:client-package
 
       - uses: actions/upload-artifact@v4
         with:

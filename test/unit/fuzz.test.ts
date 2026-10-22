@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { base64url } from 'jose'
+import { base64url, importSPKI } from 'jose'
 import {
   canonicalIdentityPayload,
   verifyIdentitySignature,
@@ -30,19 +30,26 @@ const CASES = Number(process.env.FUZZ_CASES ?? 3000)
 
 /** The fixtures of the pinned gateway. */
 const fixture = (await Bun.file('test/fixtures/shuttle-identity.json').json()) as {
-  keyBase64: string
-  cases: {
-    identity: { subject: string; email?: string; roles: string[]; workspaceId: string }
-    request: { method: string; path: string; query: string; host: string }
-    signature: string
-  }[]
+  current: {
+    publicKeyPem: string
+    cases: {
+      identity: { subject: string; email?: string; roles: string[]; workspaceId: string }
+      request: { method: string; path: string; query: string; host: string }
+      canonicalPayload: string
+      signature: string
+    }[]
+  }
 }
 
-/** The key of the fixtures. */
-const key = new Uint8Array(Buffer.from(fixture.keyBase64, 'base64'))
+/** The verification of the current format. */
+const verification = {
+  version: 'v5',
+  algorithm: 'ES256',
+  key: await importSPKI(fixture.current.publicKeyPem, 'ES256'),
+} as const
 
 /** The first case of the fixtures. */
-const entry = fixture.cases[0]!
+const entry = fixture.current.cases[0]!
 
 /** A generator of numbers that replays the same run. */
 function mulberry32(seed: number): () => number {
@@ -212,7 +219,12 @@ describe('the verification of the signature', () => {
       for (let position = 0; position < length; position += 1) {
         signature += alphabet[Math.floor(random() * alphabet.length)]!
       }
-      const valid = await verifyIdentitySignature(entry.identity, entry.request, key, signature)
+      const valid = await verifyIdentitySignature(
+        entry.identity,
+        entry.request,
+        verification,
+        signature
+      )
       expect(valid).toBe(false)
     }
   })
@@ -221,28 +233,37 @@ describe('the verification of the signature', () => {
     for (let position = 0; position < entry.signature.length; position += 1) {
       const character = entry.signature[position]!
       if (character === '.') continue
+      // The last character of the base64 of the signature carries bits
+      // that the signature does not use: a change of it is the same
+      // signature. It is not a change of the signature at all.
+      if (position === entry.signature.length - 1) continue
       for (const replacement of ['A', 'z', '0', '-', '_', '/', '+']) {
         if (replacement === character) continue
         const mutated =
           entry.signature.slice(0, position) + replacement + entry.signature.slice(position + 1)
-        const valid = await verifyIdentitySignature(entry.identity, entry.request, key, mutated)
+        const valid = await verifyIdentitySignature(
+          entry.identity,
+          entry.request,
+          verification,
+          mutated
+        )
         expect(valid, `the signature mutated at ${position} was accepted`).toBe(false)
       }
     }
   })
 
   test('a signature of another algorithm or type is refused', async () => {
-    const parts = entry.signature.slice('v4='.length).split('.')
+    const parts = entry.signature.slice('v5='.length).split('.')
     const signature = parts[2]!
     const payload = base64url.encode(
-      new TextEncoder().encode(canonicalIdentityPayload(entry.identity, entry.request))
+      new TextEncoder().encode(canonicalIdentityPayload(entry.identity, entry.request, 'v5'))
     )
     const headers = [
       { alg: 'none', typ: 'shuttle-identity' },
       { alg: 'HS512', typ: 'shuttle-identity' },
-      { alg: 'HS256', typ: 'jwt' },
-      { alg: 'HS256', typ: 'shuttle-identity', extra: true },
-      { alg: 'HS256' },
+      { alg: 'ES256', typ: 'jwt' },
+      { alg: 'ES256', typ: 'shuttle-identity', extra: true },
+      { alg: 'ES256' },
       {},
     ]
     for (const value of headers) {
@@ -250,49 +271,66 @@ describe('the verification of the signature', () => {
       const valid = await verifyIdentitySignature(
         entry.identity,
         entry.request,
-        key,
-        `v4=${encoded}.${payload}.${signature}`
+        verification,
+        `v5=${encoded}.${payload}.${signature}`
       )
       expect(valid, `the header ${JSON.stringify(value)} was accepted`).toBe(false)
     }
   })
 
-  test('the transmitted payload is not an input of the decision', async () => {
+  test('the payload of the signature is detached and it is rebuilt', async () => {
     // The signature is detached: the payload is rebuilt from the
-    // request, and the segment that carries it in the header is never
-    // read. A caller may not change the answer with it.
-    const parts = entry.signature.slice('v4='.length).split('.')
+    // request, and the segment that would carry it in the header has to
+    // be empty. A signature that carries its payload is not the format
+    // of the gateway and it is refused.
+    const parts = entry.signature.slice('v5='.length).split('.')
     const header = parts[0]!
     const signature = parts[2]!
     const payload = base64url.encode(
-      new TextEncoder().encode(canonicalIdentityPayload(entry.identity, entry.request))
+      new TextEncoder().encode(canonicalIdentityPayload(entry.identity, entry.request, 'v5'))
     )
+    const detached = await verifyIdentitySignature(
+      entry.identity,
+      entry.request,
+      verification,
+      `v5=${header}..${signature}`
+    )
+    expect(detached).toBe(true)
     const variants = [
-      `v4=${header}..${signature}`,
-      `v4=${header}.${payload}.${signature}`,
-      `v4=${header}.Zm9yZWJhcg.${signature}`,
+      `v5=${header}.${payload}.${signature}`,
+      `v5=${header}.Zm9yZWJhcg.${signature}`,
     ]
     for (const variant of variants) {
-      const valid = await verifyIdentitySignature(entry.identity, entry.request, key, variant)
-      expect(valid, `the signature "${variant}" was refused`).toBe(true)
+      const valid = await verifyIdentitySignature(
+        entry.identity,
+        entry.request,
+        verification,
+        variant
+      )
+      expect(valid, `the signature "${variant}" was accepted`).toBe(false)
     }
   })
 
   test('a signature of a truncated or of an extended signature is refused', async () => {
-    const parts = entry.signature.slice('v4='.length).split('.')
+    const parts = entry.signature.slice('v5='.length).split('.')
     const header = parts[0]!
     const payload = parts[1]!
     const signature = parts[2]!
     const variants = [
-      `v4=${header}.${payload}`,
-      `v4=${header}.${payload}.${signature}AA`,
-      `v4=${header}.${payload}.${signature.slice(0, -1)}`,
-      `v4=.${payload}.${signature}`,
-      `v5=${header}.${payload}.${signature}`,
-      `v4=${header}.${payload}.`,
+      `v5=${header}.${payload}`,
+      `v5=${header}.${payload}.${signature}AA`,
+      `v5=${header}.${payload}.${signature.slice(0, -1)}`,
+      `v5=.${payload}.${signature}`,
+      `v5=${header}.${payload}.`,
+      `v4=${header}.${payload}.${signature}`,
     ]
     for (const variant of variants) {
-      const valid = await verifyIdentitySignature(entry.identity, entry.request, key, variant)
+      const valid = await verifyIdentitySignature(
+        entry.identity,
+        entry.request,
+        verification,
+        variant
+      )
       expect(valid, `the signature "${variant}" was accepted`).toBe(false)
     }
   })

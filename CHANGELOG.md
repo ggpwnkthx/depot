@@ -7,6 +7,47 @@ grouped by what they change for a client.
 A version that changes what a client depends on is a major version. The
 rules of the change are in [`docs/contract.md`](docs/contract.md).
 
+## Unreleased
+
+### Changed
+
+- The **identity of the gateway** is verified with the **public** key of
+  the gateway, with the version `v5` of the signature and the algorithm
+  `ES256`. The backend never holds the private key of the gateway and
+  never holds `SHUTTLE_SESSION_SECRET`: a backend that verifies an
+  identity cannot mint one.
+- The **bindings of the gateway** are the file of the version 2, and
+  every route names the verification of its own signatures: the version,
+  the algorithm, and the file of the key. The file of the version 1 is
+  still read, as the legacy mode it is: a route that names the version
+  `v4` verifies with the derived key of the gateway, and it never
+  accepts a public key as its secret.
+- The **baseline of the integration** is the manifest
+  `compatibility.json`: it owns the repositories of the gateway and of
+  the hub and the revisions that are tested against them. The revision
+  of the gateway is now the one that signs with `ES256`, and the
+  revision of the hub is the one that carries the access context
+  contract and the release of the hub.
+
+### Added
+
+- The **check of the drift of the baseline**: it compares the block of
+  the baseline of the specification with the manifest and refuses a
+  workflow that holds a revision of its own.
+- The **check of the packaged client**: it packs the client with the
+  command of the release, installs the tarball in a consumer outside of
+  the repository, imports the client through its public name and calls
+  the API with it.
+
+### Fixed
+
+- The signature of the identity has to be **detached**: a signature that
+  carries its payload is refused. It was read as the format of the
+  gateway and it is not.
+
+The releases that are published are in the [releases of the
+repository](https://github.com/ggpwnkthx/depot/releases).
+
 ## 0.1.0 — the first release (2026-10-22)
 
 The service is the headless data backend of the platform: the
@@ -17,6 +58,13 @@ the tenants, the groups and the grants are the business of the hub.
 **This is the first published release of the service.** The
 `0.1.0-alpha.1` of the branch was never published: its corrections are
 the `Fixed` section below, and the release of `0.1.0` carries them.
+
+**The baseline of the integration of this release** was the gateway
+`e39d73efc37e0ca75ae5df24136babf56430ebc7` and the hub
+`4cedcfc48e9bb4eb556d2316eb502e1ab87d3105`. Those revisions are the
+historical evidence of this release: the active baseline is the manifest
+`compatibility.json`, and it is the one of the gateway that signs with
+`ES256`.
 
 **Version 0.1 is a pre-production release.** It is implemented, it
 passes its own gates, and the compatibility harness runs it against the

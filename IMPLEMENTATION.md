@@ -10,7 +10,9 @@ as `0.1.0`. It is a pre-production release: it has never run outside
 its own harness. The one dependency that the release carries is the
 extension of the hub, which is upstream since `4cedcfc` and which has
 to be deployed with the hub. The change lives in the repository of the
-hub.
+hub. The baseline of the integration is the manifest
+`compatibility.json`: it owns the repositories of the gateway and of the
+hub and the revisions that are tested against them.
 
 **What "checked" means.** The last column of the matrix says that a
 requirement of the specification is *checked*: a check of this
@@ -27,8 +29,8 @@ findings that are still open, are in [`docs/security.md`](docs/security.md).
 
 | Milestone | What it holds | The evidence |
 | --- | --- | --- |
-| **M0 — Contracts and process** | The toolchain, the validated environment, the pinned references, the probes, the architecture check, the fixtures of the signature of the gateway and the matrix of this document. | `bun run typecheck`, `bun run architecture`, `bun test test/unit/gateway-context.test.ts` |
-| **M1 — Trust and scope** | The exact verification of the Shuttle v4 signature, the trusted route bindings, the registry of the workspaces, the authoritative context of the hub, the immutable context of a request, the roles and the row level security of PostgreSQL, and the refusals between the scopes. | `bun test test/unit/gateway-context.test.ts`, `bun test test/integration/postgres.test.ts` |
+| **M0 — Contracts and process** | The toolchain, the validated environment, the manifest of the baseline and the check of its drift, the probes, the architecture check, the fixtures of the signature of the gateway and the matrix of this document. | `bun run typecheck`, `bun run architecture`, `bun run check:compatibility`, `bun test test/unit/gateway-context.test.ts` |
+| **M1 — Trust and scope** | The exact verification of the Shuttle v5 signature with the public key of the gateway, the legacy format as the migration path it is, the trusted route bindings, the registry of the workspaces, the authoritative context of the hub, the immutable context of a request, the roles and the row level security of PostgreSQL, and the refusals between the scopes. | `bun test test/unit/gateway-context.test.ts`, `bun test test/unit/identity-keys.test.ts`, `bun test test/integration/postgres.test.ts` |
 | **M2 — Schema and policies** | The reviewed migrations, the registered manifests, the detection of the drift, the filtered metadata, the typed validation, the predicates of the rows, the permissions of the fields and the complete checks of a write. | `bun test test/unit/authorization.test.ts`, `bun test test/integration/postgres.test.ts` |
 | **M3 — Record API** | Every endpoint of version 0.1, the bounded filtering, the sorting and the relations, the authenticated cursors, the canonical representations and their validators, the receipts of the creations, the conditional updates and deletes, the stable errors, the description of the API and the typed client. | `bun test test/contract/http.test.ts`, `bun test packages/client/test` |
 | **M4 — Durable effects** | The atomic transactions of the record, the audit, the event and the receipt, the registration of the subscribers, the claims of several workers, the leases and the retries, the bound of the causation and the fresh authorization of the service principal. | `bun test test/integration/transactions.test.ts`, `bun test test/integration/worker.test.ts` |
@@ -44,7 +46,9 @@ one of them has to be green before a release.
 | The requirement | The implementation | The check | The command | The status |
 | --- | --- | --- | --- | --- |
 | The canonical payload of the identity is the one of the gateway (§4.2) | `src/domains/gateway-context/verify.ts` | `test/unit/gateway-context.test.ts` (the fixtures of the pinned gateway) | `bun test test/unit` | checked |
-| The signature is verified with the derived key, `HS256` and the type `shuttle-identity` (§4.2) | `src/domains/gateway-context/verify.ts` | the same file (the tampering of the path, the query, the host, the subject, the key and the version) | `bun test test/unit` | checked |
+| The signature is verified with the public key of the gateway, `ES256` and the type `shuttle-identity` (§4.2) | `src/domains/gateway-context/verify.ts` | the same file (the tampering of the path, the query, the host, the subject, the key and the version) | `bun test test/unit` | checked |
+| The version, the algorithm and the key of a route are the ones of its binding, and there is no fallback (§4.1, §4.2) | `src/domains/gateway-context/bindings.ts`, `src/domains/gateway-context/index.ts` | `test/unit/gateway-context.test.ts` (the confusion of the version and of the algorithm, the legacy mode) | `bun test test/unit` | checked |
+| The key of a route is loaded and validated at the start of the process (§4.2) | `src/runtime/identity-keys.ts` | `test/unit/identity-keys.test.ts` (the private key, the other curve, the other kind of key) | `bun test test/unit` | checked |
 | The route and the tenant come from the bindings, never from a header (§4.1) | `src/domains/gateway-context/bindings.ts`, `src/app/app.ts` | `test/unit/gateway-context.test.ts` (the ambiguity of the bindings), `test/contract/http.test.ts` | `bun test test/unit test/contract` | checked |
 | The workspace of the path and the workspace of the signature are the same (§4.2) | `src/domains/gateway-context/index.ts` | `test/unit/gateway-context.test.ts` | `bun test test/unit` | checked |
 | The context of the hub is validated before it is used (§5.3) | `src/domains/authorization/access-context.ts` | `test/unit/authorization.test.ts`, `test/contract/http.test.ts` | `bun test test/unit test/contract` | checked |
@@ -133,8 +137,10 @@ one of them has to be green before a release.
 | The forged roles, the forged e-mail and the revoked grants never influence the authorization (§16) | `src/domains/authorization/`, `src/app/app.ts` | `test/contract/adversarial.test.ts` | `bun test test/contract` | checked |
 | The expired and the malformed contexts never allow a data operation (§16) | `src/domains/authorization/access-context.ts` | `test/contract/adversarial.test.ts` | `bun test test:contract` | checked |
 | Two updates with the same validator answer one success and one refusal (§16) | `src/domains/records/service.ts` | `test/contract/adversarial.test.ts` | `bun test test/contract` | checked |
-| The pinned gateway forwards the requests the backend accepts (§16) | `scripts/compatibility.ts` | the harness of the compatibility | `bun run test:compat` | checked |
-| The real hub answers the complete set of the keys and the decision still works (§16) | the extension of the hub (`4cedcfc`) | the harness of the compatibility | `bun run test:compat` | checked |
+| The pinned gateway forwards the requests the backend accepts, and it signs them with `ES256` (§16) | `scripts/compatibility.ts` | the harness of the compatibility | `bun run test:compat` | checked |
+| The real hub answers the complete set of the keys and the decision still works (§16) | the extension of the hub (`4cedcfc`), the baseline of `compatibility.json` | the harness of the compatibility | `bun run test:compat` | checked |
+| The baseline of the integration is one manifest, and the documentation agrees with it (§1.1) | `compatibility.json`, `scripts/compatibility-manifest.ts` | `test/unit/compatibility.test.ts`, `scripts/check-compatibility.ts` | `bun run check:compatibility` | checked |
+| The packed client is installed and used outside of the repository (§12) | `packages/client`, `scripts/check-client-package.ts` | the check of the packaging | `bun run check:client-package` | checked |
 | The acceptance scenario of §17 succeeds through the gateway | `scripts/compatibility.ts` | the harness of the compatibility | `bun run test:compat` | checked |
 | The service works without a studio (§1.3, §15) | the whole repository | there is no dependency on a studio: the repository has no studio package and no studio process | `bun run typecheck`, `bun run test:all` | checked |
 

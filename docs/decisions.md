@@ -121,16 +121,40 @@ request, and the policies of the tables deny the rows when the settings
 are missing. The setting is a scope and not a credential: it is never
 read by a caller and it is never sent over the wire.
 
-## 9. The identity of the gateway is derived, and it is not the secret of the session
+## 9. The identity of the gateway is verified with a public key, and the legacy derived key is a migration path
 
-The backend holds the derived key of the identity signature, never
-`SHUTTLE_SESSION_SECRET`.
+The backend holds the **public** key of the identity signature of the
+gateway, never `SHUTTLE_SESSION_SECRET` and never the private key of
+the gateway. The legacy format, which derives the key of the signature
+from the secret of the sessions, is still read: it is the migration path
+of a deployment that shares a key with its gateway, and a route has to
+name it explicitly.
 
-**Why.** The derivation separates the two secrets: a backend that
-compromises the key of the signature does not compromise the sessions
-of the gateway, and the key of the signature may be rotated with the
-gateway and not with the sessions. The key is a signing capable secret
-and it belongs inside the trust boundary of the gateway.
+**Why.** The derivation separates the two secrets, and it was enough
+when the trust boundary of the gateway was its network: the upstream
+that could verify an identity could mint one, and the key of the
+signature was a signing capable secret that belonged inside the trust
+boundary of the gateway. The public key moves the boundary to the key:
+an upstream that verifies an identity cannot mint one, the backend never
+holds a secret of the gateway, and the compromise of the backend does
+not give the sessions of the gateway. The legacy format stays readable
+because a deployment that changes the format of its bindings and the
+key of its gateway at the same time is a deployment that is down; the
+route names the format, so the two never mix.
+
+## 9 bis. The baseline of the integration is one file, and it is checked
+
+The repositories of the gateway and of the hub and the revisions that
+are tested against them live in `compatibility.json`, and the
+documentation of the baseline and the workflows read it.
+
+**Why.** A pin that is written twice is a pin that drifts, and a
+harness that runs against another revision than the one of the
+specification proves nothing. The check of the drift compares the
+block of the baseline of the specification with the manifest and
+refuses a workflow that holds a revision of its own. The revisions of
+the earlier baseline stay in the release notes: they are the historical
+evidence of the release `v0.1.0` and they are not the active baseline.
 
 ## 10. The workspace is read before the context exists
 
@@ -178,7 +202,8 @@ the parents, never one statement per parent.
 
 The extension of the access context contract is a change of the hub, and
 it was taken upstream: the hub carries it since `4cedcfc`, the depot
-pins that revision, and the depot holds no copy of the change.
+pins a revision of the hub that carries it in `compatibility.json`, and
+the depot holds no copy of the change.
 
 **Why.** The gateway and the hub are the contracts of the platform, and
 a change of them is a change of the platform. A patch that is reviewed

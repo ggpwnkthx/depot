@@ -16,7 +16,8 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Client } from 'pg'
-import { CompactSign } from 'jose'
+import { CompactSign, importPKCS8 } from 'jose'
+import { generateKeyPairSync } from 'node:crypto'
 import { startPostgres, freePort } from './postgres'
 import { loadMigrations, applyMigrations } from '../src/platform/postgres/migrations'
 import { ConnectionPool } from '../src/platform/postgres/database'
@@ -31,7 +32,19 @@ const WORKSPACE_ID = '22222222-2222-4222-8222-222222222222'
 const TENANT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const PRINCIPAL_ID = '11111111-1111-4111-8111-111111111111'
 const HOST = 'api.example.test'
-const KEY = new Uint8Array(Buffer.from('0123456789abcdef0123456789abcdef0123456789abcdef', 'utf8'))
+
+/**
+ * The key pair of the identity of the measurement.
+ *
+ * The clients of the measurement speak the protocol of the gateway: they
+ * sign with the private key of the pair and the service verifies with
+ * the public one, exactly like the pinned gateway does.
+ */
+const KEY_PAIR = generateKeyPairSync('ec', {
+  namedCurve: 'P-256',
+  publicKeyEncoding: { type: 'spki', format: 'pem' },
+  privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+})
 
 /** The percentiles of a list of durations. */
 function percentiles(values: number[]): Record<string, number> {
@@ -56,7 +69,7 @@ async function sign(
   workspaceId: string
 ): Promise<string> {
   const payload = JSON.stringify({
-    v: 'v4',
+    v: 'v5',
     method,
     path,
     query,
@@ -67,10 +80,10 @@ async function sign(
     roles: [],
   })
   const jws = await new CompactSign(new TextEncoder().encode(payload))
-    .setProtectedHeader({ alg: 'HS256', typ: 'shuttle-identity' })
-    .sign(KEY)
+    .setProtectedHeader({ alg: 'ES256', typ: 'shuttle-identity' })
+    .sign(await importPKCS8(KEY_PAIR.privateKey.toString(), 'ES256'))
   const [header, , signature] = jws.split('.')
-  return `v4=${header}..${signature}`
+  return `v5=${header}..${signature}`
 }
 
 /** The main of the measurement. */
@@ -138,20 +151,20 @@ async function main(): Promise<void> {
     },
   ])
 
-  const identityKeyFile = join(workspace, 'identity.key')
-  await writeFile(identityKeyFile, Buffer.from(KEY).toString('base64'))
+  const publicKeyFile = join(workspace, 'identity.public.pem')
+  await writeFile(publicKeyFile, KEY_PAIR.publicKey.toString())
   const bindingsFile = join(workspace, 'bindings.json')
   await writeFile(
     bindingsFile,
     JSON.stringify({
-      version: 1,
+      version: 2,
       bindings: [
         {
           id: 'data-api',
           host: HOST,
           upstreamPathPattern: '/ws/{workspaceId}/v1/*',
           routeId: 'data-api',
-          identityKeyFile,
+          identity: { version: 'v5', algorithm: 'ES256', publicKeyFile },
         },
       ],
     })

@@ -9,10 +9,11 @@
 - the manifests and the policy bundle of the deployment, next to the
   dump.
 
-The secrets are **not** in the backup. The derived identity key of the
-gateway, the credential of the access context, the key of the cursors
-and the passwords of the roles belong to the secret manager of the
-deployment, and they are rotated and restored by it.
+The secrets are **not** in the backup. The public key of the identity of
+the gateway, the derived identity key of the legacy format, the
+credential of the access context, the key of the cursors and the
+passwords of the roles belong to the secret manager of the deployment,
+and they are rotated and restored by it.
 
 ## The command
 

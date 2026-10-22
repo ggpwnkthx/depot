@@ -3,7 +3,7 @@
  *
  * A binding is the operator's answer to the question "which route of the
  * gateway is this request for". The request itself never carries a route
- * identifier: Shuttle v4 does not sign one, and a client that sends one
+ * identifier: Shuttle does not sign one, and a client that sends one
  * would be choosing its own route.
  *
  * The module owns the vocabulary of the bindings. It reads no file and
@@ -15,10 +15,69 @@
 export const MAX_BINDINGS = 100
 
 /** The version of the file of the bindings. */
-export const BINDING_FILE_VERSION = 1
+export const BINDING_FILE_VERSION = 2
+
+/**
+ * The version of the file of the bindings that is still read.
+ *
+ * The version 1 held one derived identity key per binding, and it is
+ * the legacy format of the symmetric signature: it is read as the
+ * legacy mode it is, and it is the documented migration path of the
+ * deployments that still share a key with their gateway.
+ */
+export const LEGACY_BINDING_FILE_VERSION = 1
 
 /** The name of the placeholder of the workspace in a pattern. */
 export const WORKSPACE_PLACEHOLDER = '{workspaceId}'
+
+/**
+ * The versions of the signature of the identity of the gateway.
+ *
+ * The version is part of the value of the signature and part of the
+ * signed payload: a signature of another version never verifies against
+ * the payload of this one.
+ */
+export const IDENTITY_SIGNATURE_VERSIONS = {
+  /**
+   * The legacy format: a detached JWS signed with `HS256` and a key
+   * that is derived from the secret of the sessions of the gateway. The
+   * key is a signing capable secret: an upstream that holds it can mint
+   * an identity.
+   */
+  v4: 'HS256',
+  /**
+   * The current format: a detached JWS signed with `ES256` and the
+   * private key of the deployment of the gateway. The upstream holds the
+   **public** key: it verifies an identity and it cannot mint one.
+   */
+  v5: 'ES256',
+} as const
+
+/** A version of the signature of the identity. */
+export type IdentitySignatureVersion = keyof typeof IDENTITY_SIGNATURE_VERSIONS
+
+/** An algorithm of the signature of the identity. */
+export type IdentitySignatureAlgorithm =
+  (typeof IDENTITY_SIGNATURE_VERSIONS)[IdentitySignatureVersion]
+
+/**
+ * The verification of the signatures of one route.
+ *
+ * The three values belong together: the version names the format of
+ * the signature, the algorithm names the cryptography of the format and
+ * the file holds the key of that algorithm. A binding that does not
+ * name all of them is refused: a route that verifies with a key it
+ * does not describe is a route that trusts something nobody wrote
+ * down.
+ */
+export interface IdentityVerificationConfig {
+  /** The version of the signature the route accepts. */
+  readonly version: IdentitySignatureVersion
+  /** The algorithm the route accepts. */
+  readonly algorithm: IdentitySignatureAlgorithm
+  /** The file that holds the key that verifies the signatures. */
+  readonly keyFile: string
+}
 
 /** One accepted gateway route. */
 export interface RouteBinding {
@@ -30,8 +89,8 @@ export interface RouteBinding {
   readonly upstreamPathPattern: string
   /** The hub route scope of the route. */
   readonly routeId: string
-  /** The file that holds the derived identity key of the gateway. */
-  readonly identityKeyFile: string
+  /** How the signatures of the route are verified. */
+  readonly identity: IdentityVerificationConfig
   /** The tenant the gateway is restricted to, when it is. */
   readonly expectedTenantId?: string
 }
@@ -134,6 +193,47 @@ function validatePattern(pattern: string, where: string): void {
 }
 
 /**
+ * Parses the verification of a binding of the version 2.
+ *
+ * The name of the file of the key follows the algorithm: a public key
+ * for `ES256` and a derived secret for `HS256`. A binding that names
+ * the file of a public key as the secret of a symmetric signature is
+ * refused: the two are not the same thing, and a deployment that mixes
+ * them trusts a key it did not mean to trust.
+ */
+function parseIdentityConfig(raw: unknown, where: string): IdentityVerificationConfig {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new BindingConfigError(`${where}: the identity of the binding is not an object`)
+  }
+  const record = raw as Record<string, unknown>
+  const version = record.version
+  if (version !== 'v4' && version !== 'v5') {
+    throw new BindingConfigError(`${where}: the version of the identity must be "v4" or "v5"`)
+  }
+  const algorithm = IDENTITY_SIGNATURE_VERSIONS[version]
+  if (record.algorithm !== algorithm) {
+    throw new BindingConfigError(
+      `${where}: the version "${version}" of the identity is signed with "${algorithm}"`
+    )
+  }
+  const keyProperty = version === 'v5' ? 'publicKeyFile' : 'identityKeyFile'
+  const allowed = ['version', 'algorithm', keyProperty]
+  const unknown = Object.keys(record).filter((key) => !allowed.includes(key))
+  if (unknown.length > 0) {
+    throw new BindingConfigError(
+      `${where}: the identity of the binding has unknown properties: ${unknown.sort().join(', ')}`
+    )
+  }
+  const keyFile = record[keyProperty]
+  if (typeof keyFile !== 'string' || keyFile.length === 0) {
+    throw new BindingConfigError(
+      `${where}: the identity of the binding must name the file of its key in "${keyProperty}"`
+    )
+  }
+  return { version, algorithm, keyFile }
+}
+
+/**
  * Parses and validates the file of the bindings.
  *
  * The file is rejected as a whole when anything is wrong: a deployment
@@ -157,7 +257,7 @@ export function parseBindingsFile(raw: string): RouteBinding[] {
       `the file of the bindings has unknown properties: ${unknownKeys.sort().join(', ')}`
     )
   }
-  if (file.version !== BINDING_FILE_VERSION) {
+  if (file.version !== BINDING_FILE_VERSION && file.version !== LEGACY_BINDING_FILE_VERSION) {
     throw new BindingConfigError(
       `the file of the bindings must have the version ${BINDING_FILE_VERSION}`
     )
@@ -174,6 +274,7 @@ export function parseBindingsFile(raw: string): RouteBinding[] {
     )
   }
 
+  const legacy = file.version === LEGACY_BINDING_FILE_VERSION
   const bindings: RouteBinding[] = []
   const identifiers = new Set<string>()
   file.bindings.forEach((entry, index) => {
@@ -182,15 +283,10 @@ export function parseBindingsFile(raw: string): RouteBinding[] {
       throw new BindingConfigError(`${where}: the binding is not an object`)
     }
     const record = entry as Record<string, unknown>
-    const allowed = new Set([
-      'id',
-      'host',
-      'upstreamPathPattern',
-      'routeId',
-      'identityKeyFile',
-      'expectedTenantId',
-    ])
-    const unknown = Object.keys(record).filter((key) => !allowed.has(key))
+    const allowed = legacy
+      ? ['id', 'host', 'upstreamPathPattern', 'routeId', 'identityKeyFile', 'expectedTenantId']
+      : ['id', 'host', 'upstreamPathPattern', 'routeId', 'identity', 'expectedTenantId']
+    const unknown = Object.keys(record).filter((key) => !allowed.includes(key))
     if (unknown.length > 0) {
       throw new BindingConfigError(
         `${where}: the binding has unknown properties: ${unknown.sort().join(', ')}`
@@ -200,7 +296,6 @@ export function parseBindingsFile(raw: string): RouteBinding[] {
     const host = record.host
     const pattern = record.upstreamPathPattern
     const routeId = record.routeId
-    const keyFile = record.identityKeyFile
     if (typeof id !== 'string' || id.length === 0 || id.length > 64) {
       throw new BindingConfigError(`${where}: the id is required and it is a short string`)
     }
@@ -221,9 +316,9 @@ export function parseBindingsFile(raw: string): RouteBinding[] {
     if (typeof routeId !== 'string' || routeId.length === 0 || routeId.length > 128) {
       throw new BindingConfigError(`${where}: the route id is required and it is a short string`)
     }
-    if (typeof keyFile !== 'string' || keyFile.length === 0) {
-      throw new BindingConfigError(`${where}: the identity key file is required`)
-    }
+    const identity = legacy
+      ? parseLegacyIdentityConfig(record.identityKeyFile, where)
+      : parseIdentityConfig(record.identity, where)
     const expectedTenantId = record.expectedTenantId
     if (expectedTenantId !== undefined) {
       if (typeof expectedTenantId !== 'string' || !isUuid(expectedTenantId)) {
@@ -235,13 +330,27 @@ export function parseBindingsFile(raw: string): RouteBinding[] {
       host,
       upstreamPathPattern: pattern,
       routeId,
-      identityKeyFile: keyFile,
+      identity,
       ...(expectedTenantId === undefined ? {} : { expectedTenantId }),
     })
   })
 
   assertUnambiguous(bindings)
   return bindings
+}
+
+/**
+ * Parses the identity of a binding of the legacy file.
+ *
+ * The legacy file held the derived key of the gateway and nothing else:
+ * the verification of a route was symmetric. It is read as the legacy
+ * mode it is, and it is never read as a public key.
+ */
+function parseLegacyIdentityConfig(raw: unknown, where: string): IdentityVerificationConfig {
+  if (typeof raw !== 'string' || raw.length === 0) {
+    throw new BindingConfigError(`${where}: the identity key file is required`)
+  }
+  return { version: 'v4', algorithm: 'HS256', keyFile: raw }
 }
 
 /**

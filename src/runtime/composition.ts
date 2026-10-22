@@ -32,6 +32,7 @@ import { ConnectionPool } from '../platform/postgres/database'
 import { loadMigrations } from '../platform/postgres/migrations'
 import { PostgresDataStore } from '../platform/postgres/scoped'
 import { type Env, type RuntimeSettings, readEnv } from './config'
+import { loadIdentityVerification } from './identity-keys'
 import { Readiness } from './readiness'
 import { articleProjectionSubscriber } from './subscribers'
 import { SubscriberWorker } from './worker'
@@ -61,20 +62,10 @@ export interface CompositionOptions {
  * The file holds the key of the signature of the identity, in base64 or
  * in hexadecimal. It is the derived key and not the secret of the
  * session: the two are not the same secret and they are not confused.
+ *
+ * @deprecated the loader of the keys is `src/runtime/identity-keys.ts`.
  */
-export async function readIdentityKey(path: string): Promise<Uint8Array> {
-  const raw = (await readFile(path, 'utf8')).trim()
-  if (/^[0-9a-fA-F]{64}$/.test(raw)) {
-    return new Uint8Array(Buffer.from(raw, 'hex'))
-  }
-  if (/^[A-Za-z0-9+/]+={0,2}$/.test(raw) && raw.length % 4 === 0) {
-    const decoded = Buffer.from(raw, 'base64')
-    if (decoded.length >= 16) return new Uint8Array(decoded)
-  }
-  const bytes = new Uint8Array(Buffer.from(raw, 'utf8'))
-  if (bytes.length >= 16) return bytes
-  throw new Error(`the identity key file is too short: ${path}`)
-}
+export { readIdentityKey } from './identity-keys'
 
 /** Builds the runtime of the process. */
 export async function createRuntime(options: CompositionOptions = {}): Promise<Runtime> {
@@ -88,11 +79,17 @@ export async function createRuntime(options: CompositionOptions = {}): Promise<R
   const migrations = await loadMigrations(options.migrationsDir ?? './migrations')
 
   // The bindings of the gateway and the keys that verify its signatures.
+  // The key of a route is loaded once, at the start of the process: a
+  // route that cannot be verified stops the service instead of being
+  // served without a proof.
   const bindings: ResolvedBinding[] = []
   if (settings.bindings.file) {
     const raw = await readFile(settings.bindings.file, 'utf8')
     for (const binding of parseBindingsFile(raw)) {
-      bindings.push({ binding, identityKey: await readIdentityKey(binding.identityKeyFile) })
+      bindings.push({
+        binding,
+        verification: await loadIdentityVerification(binding.identity),
+      })
     }
   }
 

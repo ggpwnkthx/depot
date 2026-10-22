@@ -10,13 +10,22 @@
  * of the signature. It reads no file and knows nothing about the database:
  * it is the part of the service that answers "did this request really
  * come through the gateway".
+ *
+ * The verification is configured per route: the binding names the
+ * version of the signature it accepts, the algorithm of that version and
+ * the key that verifies it. The version and the algorithm are never read
+ * from the request: a caller that chooses the algorithm of its own
+ * signature chooses the key that verifies it.
  */
 
-import { base64url, compactVerify } from 'jose'
-import { type RouteBinding, WORKSPACE_PLACEHOLDER, isUuid } from './bindings'
-
-/** The version of the signature of the gateway. */
-export const SIGNATURE_VERSION = 'v4'
+import { base64url, compactVerify, type KeyInput } from 'jose'
+import {
+  type IdentitySignatureAlgorithm,
+  type IdentitySignatureVersion,
+  type RouteBinding,
+  WORKSPACE_PLACEHOLDER,
+  isUuid,
+} from './bindings'
 
 /** The header the signature is written to. */
 export const SIGNATURE_HEADER = 'x-shuttle-signature'
@@ -37,10 +46,7 @@ export const WORKSPACE_HEADER = 'x-shuttle-workspace'
 export const FORWARDED_HOST_HEADER = 'x-forwarded-host'
 
 /** The type of the protected header of the signature. */
-const IDENTITY_SIGNATURE_TYPE = 'shuttle-identity'
-
-/** The algorithm of the signature. */
-const IDENTITY_SIGNATURE_ALGORITHM = 'HS256'
+export const IDENTITY_SIGNATURE_TYPE = 'shuttle-identity'
 
 /** The identity as the gateway wrote it into the headers. */
 export interface WrittenIdentity {
@@ -63,19 +69,41 @@ export interface SignedRequest {
 }
 
 /**
+ * The key that verifies the signatures of a route.
+ *
+ * The key belongs to the route and it is loaded by the runtime: the
+ * domain never reads a file. For the version `v5` it is the public key
+ * of the deployment of the gateway, and for the legacy version `v4` it
+ * is the derived secret of the gateway.
+ */
+export interface IdentityVerification {
+  /** The version of the signature the route accepts. */
+  readonly version: IdentitySignatureVersion
+  /** The algorithm the route accepts. */
+  readonly algorithm: IdentitySignatureAlgorithm
+  /** The key that verifies the signature. */
+  readonly key: KeyInput
+}
+
+/**
  * The canonical form of the signed payload.
  *
  * The form is the one of the pinned gateway (spec §4.2): the fields are
  * written in a fixed order, the roles are sorted, and a missing value is
  * an empty string. The values are not normalized before the payload is
  * built: a value that was changed would change the signature.
+ *
+ * The version is part of the payload: it binds the format of the
+ * signature, and an upstream that rebuilds the payload of a version it
+ * does not know refuses the signature.
  */
 export function canonicalIdentityPayload(
   identity: WrittenIdentity,
-  request: SignedRequest
+  request: SignedRequest,
+  version: IdentitySignatureVersion
 ): string {
   return JSON.stringify({
-    v: SIGNATURE_VERSION,
+    v: version,
     method: request.method.toUpperCase(),
     path: request.path,
     query: request.query,
@@ -91,36 +119,52 @@ export function canonicalIdentityPayload(
  * Verifies a detached signature.
  *
  * The verification is the one of the library: the signature is checked
- * against the rebuilt payload, so a signature that does not belong to the
- * request is refused by the cryptography and not by a comparison that
+ * against the rebuilt payload, so a signature that does not belong to
+ * the request is refused by the cryptography and not by a comparison that
  * could be written wrong.
+ *
+ * The version of the value, the algorithm and the type of the protected
+ * header are the ones the route is configured with, and the payload of
+ * the signature has to be detached: a signature that carries its payload
+ * is not the format of the gateway.
  */
 export async function verifyIdentitySignature(
   identity: WrittenIdentity,
   request: SignedRequest,
-  key: Uint8Array,
+  verification: IdentityVerification,
   signature: string | null | undefined
 ): Promise<boolean> {
   if (!signature) return false
-  const prefix = `${SIGNATURE_VERSION}=`
+  const prefix = `${verification.version}=`
   if (!signature.startsWith(prefix)) return false
   const parts = signature.slice(prefix.length).split('.')
   if (parts.length !== 3) return false
   const protectedHeader = parts[0]
+  const transmittedPayload = parts[1]
   const detachedSignature = parts[2]
   if (!protectedHeader || !detachedSignature) return false
-  let header: { alg?: string; typ?: string }
+  // The payload is detached: the segment that would carry it has to be
+  // empty. A signature that carries its payload is not the format of the
+  // gateway, and it is refused before the cryptography is asked.
+  if (transmittedPayload !== '') return false
+  let header: { alg?: string; typ?: string; crit?: unknown }
   try {
     header = JSON.parse(new TextDecoder().decode(base64url.decode(protectedHeader)))
   } catch {
     return false
   }
-  if (header.alg !== IDENTITY_SIGNATURE_ALGORITHM) return false
+  if (!header || typeof header !== 'object') return false
+  if (header.alg !== verification.algorithm) return false
   if (header.typ !== IDENTITY_SIGNATURE_TYPE) return false
-  const payload = new TextEncoder().encode(canonicalIdentityPayload(identity, request))
+  // A critical header the backend does not know is refused: the library
+  // would refuse it too, and the refusal is explicit here.
+  if (header.crit !== undefined) return false
+  const payload = new TextEncoder().encode(
+    canonicalIdentityPayload(identity, request, verification.version)
+  )
   const compact = `${protectedHeader}.${base64url.encode(payload)}.${detachedSignature}`
   try {
-    await compactVerify(compact, key, { algorithms: [IDENTITY_SIGNATURE_ALGORITHM] })
+    await compactVerify(compact, verification.key, { algorithms: [verification.algorithm] })
     return true
   } catch {
     return false

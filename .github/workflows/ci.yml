@@ -46,6 +46,8 @@ jobs:
           echo "the service, the client and the image are the version $version"
       - name: the types of the client are the ones of the manifest
         run: bun run scripts/generate-client.ts --check
+      - name: the baseline of the integration agrees with the manifest
+        run: bun run check:compatibility
       - name: the style
         run: |
           bun run lint
@@ -66,6 +68,8 @@ jobs:
         run: bun test test/architecture
       - name: the consumer of the client
         run: bun test packages/client/test
+      - name: the packed client works outside of the repository
+        run: bun run check:client-package
       - name: the database, the transactions and the worker
         run: bun test test/integration
         env:
@@ -86,11 +90,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql postgresql-client
+      # The repositories and the revisions are the ones of the
+      # manifest `compatibility.json`: the workflow does not hold a pin
+      # of its own, and the check of the drift refuses it when it does.
       - name: the gateway, the hub and the backend
         run: bun run test:compat
-        env:
-          SHUTTLE_REPOSITORY: https://github.com/ggpwnkthx/shuttle
-          HUB_REPOSITORY: https://github.com/ggpwnkthx/hub
 
   # The image of the service is a part of the release: it is built, it is
   # started, and it answers its probes with the artifacts that the
