@@ -103,12 +103,20 @@ jobs:
       # publication is a step of its own: a release that does not carry
       # the secret of the registry publishes the tarball of the release
       # and nothing else.
+      #
+      # The secret is read by the step and not by its condition: the
+      # context of the secrets is not available in the condition of a
+      # step, and a workflow that reads it there is refused by the
+      # runner before it runs.
       - name: the client on the registry of the packages
-        if: ${{ secrets.NPM_TOKEN != '' }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
+          if [ -z "${NODE_AUTH_TOKEN}" ]; then
+            echo "the release does not carry the secret of the registry: the tarball of the release is published and nothing else"
+            exit 0
+          fi
           cd packages/client
           npm publish --access public --provenance
 
