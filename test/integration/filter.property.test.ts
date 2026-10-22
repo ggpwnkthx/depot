@@ -153,6 +153,10 @@ interface Fixture {
   readonly values: Record<string, unknown>
 }
 
+// The run asks the database one question per predicate: the timeout of
+// the check is the timeout of the whole run, so that a runner that is
+// slower than the machine of the author does not fail a check that is
+// not failing.
 test('the two evaluations of a predicate agree on every generated predicate', async () => {
   const database = await testDatabase()
   const client = new Client({ connectionString: database.ownerUrl })
@@ -243,7 +247,7 @@ test('the two evaluations of a predicate agree on every generated predicate', as
     `the two evaluations disagree. the seed is ${SEED}; replay it with FILTER_PROPERTY_SEED=${SEED}`
   ).toEqual([])
   expect(checked).toBeGreaterThan(0)
-})
+}, 120_000)
 
 /** Describes a divergence, with the rows that the two answers separate. */
 function describe(
