@@ -40,6 +40,7 @@ for.
 | [decisions.md](decisions.md) | The choices of the implementation and the reason of each one. |
 | [development.md](development.md) | The suites of the tests, the gates of a release and the scripts of the repository. |
 | [changelog.md](changelog.md) | The changes of the service, from the newest to the oldest. |
+| [release-readiness.md](release-readiness.md) | The gates of the version 1.0.0, one by one, and the ones that are outside the repository. |
 
 ## The status of the release
 

@@ -160,3 +160,29 @@ A deployment declares:
 
 And it measures them with the same command, on its own hardware, and it
 publishes the result the way this document publishes the one above.
+
+### The declaration of the reference deployment
+
+The deployment of this repository is the reference, and it declares:
+
+| | The declaration |
+| --- | --- |
+| The rate of the requests | 1 000 requests per second, with the context of Hub asked for every request |
+| The objective of the latency | the ninety fifth percentile under 25 milliseconds for a page of fifty records, and under 50 milliseconds for a write |
+| The shape of the data | 1 000 records of one workspace, a page of fifty, a filter of ten predicates |
+| The complexity of the policies | one policy per action, five fields of a policy |
+| The settings of the pool | `DATA_DB_POOL_MAX=20`, and the pools of the registry and of the deliveries of five |
+| The replicas | one api process and one worker, on the machine of the measurement |
+| The availability | `DATA_CONTEXT_CACHE_TTL_MS=0`: the revocation of a grant is visible in the next request, and a Hub that is down answers `503` to every call |
+
+The objectives are the ones of the measurement above, with a margin of
+a half: the measurement reached 1 686 requests per second on the read
+heavy scenario and 2 077 on the mixed one, and the ninety fifth
+percentile was 11.6 and 10.2 milliseconds. A deployment that declares
+more than its machine holds is a deployment that answers `503` when it
+is full, and the service is measured with the command of the
+repository, not with a promise.
+
+The bound of the revocation of a grant is the lifetime of the cache of
+the context plus the duration of the request that is running: with the
+default of no cache, it is the duration of the request.
