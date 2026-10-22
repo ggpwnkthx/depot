@@ -270,6 +270,30 @@ export const MAX_RELATED_ROWS_PER_RESPONSE = 1000
 /** The maximum size of a response, in bytes. */
 export const MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 
+/**
+ * The number of the bytes that one chunk of an expansion aims at.
+ *
+ * The expansion of a relation is read in chunks: a chunk is read, it is
+ * counted, and the next chunk is read only if the budget still has
+ * room for it. The chunk aims at a mebibyte, so the memory that the
+ * process holds for an expansion is bounded by the budget and not by
+ * the number of the rows that a collection may hold.
+ */
+export const EXPANSION_CHUNK_BYTES = 1024 * 1024
+
+/**
+ * The number of the rows of the first chunk of an expansion.
+ *
+ * The first chunk is small: the size of a row is not known before it is
+ * read, and a chunk of a hundred rows of a large collection is a
+ * hundred rows of memory before the budget is read. The chunk grows to
+ * the size that the rows it holds allow.
+ */
+export const EXPANSION_FIRST_CHUNK_ROWS = 8
+
+/** The largest number of the rows of a chunk of an expansion. */
+export const EXPANSION_MAX_CHUNK_ROWS = 200
+
 /** The maximum number of the groups of an aggregate. */
 export const MAX_AGGREGATE_GROUPS = 1000
 

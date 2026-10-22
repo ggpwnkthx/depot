@@ -57,6 +57,9 @@ import {
   MAX_SEARCH_LENGTH,
   MAX_SELECTED_FIELDS,
   MAX_SORT_FIELDS,
+  EXPANSION_CHUNK_BYTES,
+  EXPANSION_FIRST_CHUNK_ROWS,
+  EXPANSION_MAX_CHUNK_ROWS,
 } from './types'
 import {
   canonicalJson,
@@ -68,6 +71,7 @@ import {
   queryFingerprint,
 } from './canonical'
 import { BodyError, validateBody } from './validation'
+import { ResponseBudget } from './budget'
 import { buildCreateGuard, buildDeleteGuard, buildUpdateGuard } from './write-guard'
 import {
   EXPOSED_SERVER_FIELDS,
@@ -95,6 +99,8 @@ interface SelectedRow {
   position: unknown[]
   /** The values of the foreign keys of the relations, hidden from the answer. */
   foreignKeys: Record<string, unknown>
+  /** The size of the payload, in bytes, as the database measured it. */
+  size: number
 }
 
 /** The service of the records. */
@@ -661,25 +667,38 @@ export class RecordsService {
       async (unit) => {
         await this.#checkReferences(unit, context, collection, values)
         await unit.execute(`set local lock_timeout = '2000ms'`)
-        const claim = await unit.query<{ record_id: string }>(
-          `insert into platform.idempotency_receipts
+        let claim: { record_id: string }[]
+        try {
+          claim = await unit.query<{ record_id: string }>(
+            `insert into platform.idempotency_receipts
      (tenant_id, workspace_id, principal_id, route_id, endpoint, key, fingerprint, status, record_id, record_version, created_at, expires_at)
    values ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, 'committed', $8::uuid, $9, now(), now() + interval '24 hours')
    on conflict (tenant_id, workspace_id, principal_id, route_id, endpoint, key)
    do update set fingerprint = platform.idempotency_receipts.fingerprint where false
    returning record_id`,
-          [
-            context.tenantId,
-            context.workspaceId,
-            context.principalId,
-            context.routeId,
-            `POST /items/${collection.key}`,
-            options.idempotencyKey,
-            fingerprint,
-            id,
-            1,
-          ]
-        )
+            [
+              context.tenantId,
+              context.workspaceId,
+              context.principalId,
+              context.routeId,
+              `POST /items/${collection.key}`,
+              options.idempotencyKey,
+              fingerprint,
+              id,
+              1,
+            ]
+          )
+        } catch (error) {
+          // The claim waits for the transaction that holds the key, and
+          // the wait is bounded by the lock timeout. The only conflict
+          // of this statement is that wait: the answer of a wait that
+          // was not resolved is the answer of an operation that is in
+          // progress.
+          if (error instanceof ServiceError && error.code === 'CONFLICT') {
+            throw new ServiceError('OPERATION_IN_PROGRESS', { headers: { 'Retry-After': '1' } })
+          }
+          throw error
+        }
         if (claim.length === 0) {
           const existing = await unit.queryOne<{
             record_id: string
@@ -1291,98 +1310,168 @@ export class RecordsService {
     rows: readonly SelectedRow[],
     include: readonly string[]
   ): Promise<Record<string, unknown>[]> {
+    const budget = new ResponseBudget(MAX_RESPONSE_BYTES)
     const out: Record<string, unknown>[] = []
-    let relatedTotal = 0
     for (const row of rows) {
       const payload: Record<string, unknown> = { id: row.id, version: row.version, ...row.payload }
-      for (const name of include) {
-        if (!row.relations.includes(name)) continue
-        const relation = collection.relations[name]
-        if (!relation) continue
-        const target = this.collection(context, relation.target)
-        if (!target) continue
-        const targetPolicies = this.#readPolicies(context, target.key)
-        if (targetPolicies.length === 0) continue
-        if (relation.type === 'many-to-one') {
-          const value = row.foreignKeys[relation.field]
-          if (value === undefined || value === null) {
-            payload[name] = null
-            continue
-          }
-          const found = await this.#fetchRelated(unit, context, target, targetPolicies, 'id', [
-            String(value),
-          ])
-          relatedTotal += found.length
-          if (relatedTotal > MAX_RELATED_ROWS_PER_RESPONSE) {
-            throw new ServiceError('RESULT_TOO_LARGE')
-          }
-          payload[name] = found[0]?.representation ?? null
-          continue
+      // The row is counted before its relations are attached: the
+      // relations are counted on their own, and the sum of the two is
+      // the size of the answer. The size is the one that the database
+      // measured: the process does not serialize a row to know how big
+      // it is.
+      budget.addBytes(row.size)
+      out.push(payload)
+    }
+    let relatedTotal = 0
+    for (const name of include) {
+      const relation = collection.relations[name]
+      if (!relation) continue
+      const target = this.collection(context, relation.target)
+      if (!target) continue
+      const targetPolicies = this.#readPolicies(context, target.key)
+      if (targetPolicies.length === 0) continue
+      // The roots that hold the relation: a root that does not grant it
+      // does not carry the key at all.
+      const indexes: number[] = []
+      for (let index = 0; index < rows.length; index += 1) {
+        if (rows[index]!.relations.includes(name)) indexes.push(index)
+      }
+      if (indexes.length === 0) continue
+      if (relation.type === 'many-to-one') {
+        const values: string[] = []
+        for (const index of indexes) {
+          const value = rows[index]!.foreignKeys[relation.field]
+          if (value === undefined || value === null) continue
+          values.push(String(value))
         }
+        // One statement for the whole page: the relation of every root
+        // is read at once, and not once per root.
         const found = await this.#fetchRelated(
           unit,
           context,
           target,
           targetPolicies,
-          relation.field,
-          [row.id]
+          'id',
+          values,
+          budget
         )
-        if (found.length > MAX_RELATED_ROWS_PER_ROOT) {
-          throw new ServiceError('RESULT_TOO_LARGE')
-        }
         relatedTotal += found.length
         if (relatedTotal > MAX_RELATED_ROWS_PER_RESPONSE) {
           throw new ServiceError('RESULT_TOO_LARGE')
         }
-        payload[name] = found
-          .filter((entry) => entry.parent === row.id)
-          .map((entry) => entry.representation)
+        const byValue = new Map(found.map((entry) => [entry.parent, entry.representation]))
+        for (const index of indexes) {
+          const value = rows[index]!.foreignKeys[relation.field]
+          out[index]![name] =
+            value === undefined || value === null ? null : (byValue.get(String(value)) ?? null)
+        }
+        continue
       }
-      out.push(payload)
+      const ids = indexes.map((index) => rows[index]!.id)
+      const found = await this.#fetchRelated(
+        unit,
+        context,
+        target,
+        targetPolicies,
+        relation.field,
+        ids,
+        budget
+      )
+      relatedTotal += found.length
+      if (relatedTotal > MAX_RELATED_ROWS_PER_RESPONSE) {
+        throw new ServiceError('RESULT_TOO_LARGE')
+      }
+      const byParent = new Map<string, { representation: Record<string, unknown> }[]>()
+      for (const entry of found) {
+        const list = byParent.get(entry.parent) ?? []
+        list.push(entry)
+        byParent.set(entry.parent, list)
+      }
+      for (const index of indexes) {
+        const list = byParent.get(rows[index]!.id) ?? []
+        if (list.length > MAX_RELATED_ROWS_PER_ROOT) {
+          throw new ServiceError('RESULT_TOO_LARGE')
+        }
+        out[index]![name] = list.map((entry) => entry.representation)
+      }
     }
     return out
   }
 
-  /** Reads the related rows of a relation. */
+  /**
+   * Reads the related rows of a relation.
+   *
+   * The rows are read in chunks: a chunk is read, it is counted by the
+   * budget of the answer, and the next chunk is read only if the budget
+   * still has room for it. The size of the chunk follows the size of
+   * the rows: a collection of small rows is read in big chunks, and a
+   * collection of large rows is read in small ones.
+   *
+   * The bound of the number of the rows is the one of the contract: the
+   * answer never carries more than a thousand related rows, and the
+   * chunk that crosses the bound is the last one.
+   */
   async #fetchRelated(
     unit: UnitOfWork,
     context: RequestContext,
     target: CollectionDefinition,
-    policies: readonly Policy[],
+    policies: Policy[],
     field: string,
-    values: readonly string[]
+    values: readonly string[],
+    budget: ResponseBudget
   ): Promise<{ representation: Record<string, unknown>; parent: string }[]> {
     const catalogue = catalogueFor(target)
     const granted = this.#grantedFields(context, target).filter((name) => catalogue[name])
-    const parameters = new Parameters()
-    const scopeClause = `t.tenant_id = ${parameters.add(context.tenantId, 'uuid')} and t.workspace_id = ${parameters.add(context.workspaceId, 'uuid')}`
-    const predicate = rowPredicate(policies, parameters, catalogue, this.#substitutions(context))
-    const fieldClause = `t."${field}" = any(${parameters.add([...values], 'uuid[]')})`
-    const sql = buildSelect({
-      table: target.table,
-      scopeClause,
-      predicate,
-      filterClause: fieldClause,
-      keyset: 'true',
-      policies,
-      catalogue,
-      substitutions: this.#substitutions(context),
-      parameters,
-      selectedFields: granted,
-      foreignKeys: [field],
-      relations: [],
-      sort: [{ field: 'id', descending: false }],
-      limit: MAX_RELATED_ROWS_PER_RESPONSE + 1,
-    })
-    const raw = await unit.query<Record<string, unknown>>(sql, parameters.values)
-    const rows = raw.map((row) => mapRow(row, [{ field: 'id', descending: false }], [field]))
-    if (rows.length > MAX_RELATED_ROWS_PER_RESPONSE) {
-      throw new ServiceError('RESULT_TOO_LARGE')
+    const found: { representation: Record<string, unknown>; parent: string }[] = []
+    const sort: SortColumn[] = [{ field: 'id', descending: false }]
+    let after: string | null = null
+    let chunk = EXPANSION_FIRST_CHUNK_ROWS
+    while (found.length < MAX_RELATED_ROWS_PER_RESPONSE + 1) {
+      const parameters = new Parameters()
+      const scopeClause = `t.tenant_id = ${parameters.add(context.tenantId, 'uuid')} and t.workspace_id = ${parameters.add(context.workspaceId, 'uuid')}`
+      const predicate = rowPredicate(policies, parameters, catalogue, this.#substitutions(context))
+      const fieldClause = `t."${field}" = any(${parameters.add([...values], 'uuid[]')})`
+      // The chunk continues after the last row of the previous one: the
+      // rows are ordered by their identifier, and the identifier is
+      // unique.
+      const keyset = after === null ? 'true' : `t."id" > ${parameters.add(after, 'uuid')}`
+      const sql = buildSelect({
+        table: target.table,
+        scopeClause,
+        predicate,
+        filterClause: fieldClause,
+        keyset,
+        policies,
+        catalogue,
+        substitutions: this.#substitutions(context),
+        parameters,
+        selectedFields: granted,
+        foreignKeys: [field],
+        relations: [],
+        sort,
+        limit: chunk,
+      })
+      const raw = await unit.query<Record<string, unknown>>(sql, parameters.values)
+      const rows = raw.map((row) => mapRow(row, sort, [field]))
+      if (rows.length === 0) break
+      const before = budget.used
+      for (const row of rows) {
+        const representation: Record<string, unknown> = {
+          id: row.id,
+          version: row.version,
+          ...row.payload,
+        }
+        budget.addBytes(row.size)
+        found.push({
+          representation,
+          parent: String(row.foreignKeys[field] ?? ''),
+        })
+      }
+      if (rows.length < chunk) break
+      after = String(rows[rows.length - 1]!.id)
+      chunk = nextChunkSize(chunk, budget.used - before, rows.length)
     }
-    return rows.map((row) => ({
-      representation: { id: row.id, version: row.version, ...row.payload },
-      parent: String(row.foreignKeys[field] ?? ''),
-    }))
+    return found
   }
 }
 
@@ -1473,6 +1562,24 @@ function buildSelect(options: SelectOptions): string {
   })
   const payload = payloadParts.length === 0 ? `'{}'::jsonb` : payloadParts.join(' || ')
 
+  // The size of the payload, measured by the database.
+  //
+  // The size of every piece of the payload is the size of the object
+  // that the piece holds: the statement measures it while it builds
+  // the row, and the process does not serialize a row to know how big
+  // it is. The measure counts the pieces that the policies do not
+  // grant for the row: the budget is an upper bound of the size of
+  // the answer, and never a lower one.
+  const sizeParts = options.selectedFields.map((field) => {
+    const definition = catalogue[field]!
+    const piece = `jsonb_build_object('${field}', ${jsonExpression(field, definition, 't')})`
+    return `octet_length(${piece}::text)`
+  })
+  const size =
+    sizeParts.length === 0
+      ? '64'
+      : `(${sizeParts.join(' + ')} + ${options.selectedFields.length * 8 + 64})`
+
   const relationParts = options.relations.map((name) => {
     const granting = policies
       .map((policy, policyIndex) => (policy.fields.includes(name) ? `m${policyIndex}` : null))
@@ -1504,14 +1611,30 @@ function buildSelect(options: SelectOptions): string {
   ${innerOrder}limit ${options.limit}
 ), rows as (
   select
-    ${parts.join(',\n    ')}
+    ${parts.join(',\n    ')},
+    (${size}) as size
   from page p
   join ${options.table} t on t."id" = p.id and (${options.scopeClause})
 )
-select ${selected.join(', ')}, (${payload}) as payload, (${relations}) as relations
+select ${selected.join(', ')}, (${payload}) as payload, (${relations}) as relations, size
 from rows
 where ${where}
 ${outerOrder}`
+}
+
+/**
+ * The size of the next chunk of an expansion.
+ *
+ * The chunk aims at a mebibyte: a collection of small rows is read in
+ * big chunks, and a collection of large rows is read in small ones. The
+ * chunk never grows beyond the bound of the contract, and it is never
+ * empty: a chunk of one row is slow, and it is the last resort.
+ */
+function nextChunkSize(current: number, bytes: number, rows: number): number {
+  if (rows <= 0 || bytes <= 0) return current
+  const perRow = bytes / rows
+  const wanted = Math.floor(EXPANSION_CHUNK_BYTES / perRow)
+  return Math.min(EXPANSION_MAX_CHUNK_ROWS, Math.max(1, wanted))
 }
 
 /**
@@ -1543,6 +1666,7 @@ function mapRow(
     relations: Object.keys(relations).filter((name) => relations[name] === true),
     position,
     foreignKeys: keys,
+    size: Number(row.size ?? 0),
   }
 }
 

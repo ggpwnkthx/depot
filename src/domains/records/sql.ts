@@ -97,9 +97,16 @@ export function compileInto(
   return compiled.sql
 }
 
-/** The expression that reads a field into a json payload. */
-export function jsonExpression(field: string, definition: FieldDefinition): string {
-  const column = quoteIdentifier(field)
+/**
+ * The expression that reads a field into a json payload.
+ *
+ * The alias is the table of the field, when the expression is used in a
+ * statement that reads more than one table.
+ */
+export function jsonExpression(field: string, definition: FieldDefinition, alias?: string): string {
+  const column = alias
+    ? `${quoteIdentifier(alias)}.${quoteIdentifier(field)}`
+    : quoteIdentifier(field)
   switch (definition.type) {
     case 'decimal':
       return `${column}::text`
