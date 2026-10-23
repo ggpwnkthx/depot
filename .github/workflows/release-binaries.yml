@@ -256,6 +256,12 @@ jobs:
             -e POSTGRES_USER=depot -e POSTGRES_PASSWORD=depot -e POSTGRES_DB=postgres \
             -p 5432:5432 postgres:16-alpine
           until docker exec depot-pg pg_isready -U depot; do sleep 1; done
+          # The image of PostgreSQL answers the probe while it initialises
+          # its cluster, and it restarts the server when it is done: the
+          # readiness of the server is not the readiness of the database.
+          # A query is what proves that the server that answers is the
+          # one that stays.
+          until docker exec depot-pg psql -U depot -d postgres -c 'select 1' > /dev/null 2>&1; do sleep 1; done
 
           DATA_ADMIN_DATABASE_URL=postgres://depot:depot@127.0.0.1:5432/postgres \
           DATA_OWNER_DATABASE_URL=postgres://data_owner:smoke-owner-password-0001@127.0.0.1:5432/depot \
@@ -288,20 +294,26 @@ jobs:
           " > hub.log 2>&1 &
 
           # The bindings of the gateway: the identity of a request is
-          # signed with a key, and the key of the smoke test is one that
-          # is generated here.
+          # signed with the private key of the deployment of the
+          # gateway, and the backend verifies it with the public one.
+          # The pair of the smoke test is one that is generated here.
           mkdir -p "$root/smoke"
-          openssl rand -hex 32 > "$root/smoke/identity.key"
+          openssl ecparam -name prime256v1 -genkey -noout -out "$root/smoke/identity.key"
+          openssl ec -in "$root/smoke/identity.key" -pubout -out "$root/smoke/identity.public.pem"
           cat > "$root/smoke/bindings.json" <<EOF
           {
-            "version": 1,
+            "version": 2,
             "bindings": [
               {
                 "id": "data-api",
                 "host": "smoke.shuttle.test",
                 "upstreamPathPattern": "/ws/{workspaceId}/v1/*",
                 "routeId": "data-api",
-                "identityKeyFile": "$root/smoke/identity.key"
+                "identity": {
+                  "version": "v5",
+                  "algorithm": "ES256",
+                  "publicKeyFile": "$root/smoke/identity.public.pem"
+                }
               }
             ]
           }
