@@ -74,8 +74,9 @@ When the two gates outside the repository are met:
    client is published on a registry and it runs with node, and the
    backup of a deployment works with the roles of the deployment.
 4. the commit of the version is pushed, and the workflow `the tag of
-   the release` creates the tag `v1.0.0` and pushes it. The workflows
-   of the release publish the image, the binaries of the seven
-   platforms, the client and the checksums of the release. The details
-   of the tag are in [the development](development.md) §"The tag of a
-   release".
+   the release` creates the tag `v1.0.0` and pushes it, once the
+   continuous integration of the commit is green. The workflow
+   dispatches the workflows of the release on the tag, and they publish
+   the image, the binaries of the seven platforms, the client and the
+   checksums of the release. The details of the tag are in
+   [the development](development.md) §"The tag of a release".

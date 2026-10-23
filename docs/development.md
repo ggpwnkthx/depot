@@ -112,9 +112,12 @@ The release of the service is a tag: `v1.0.0` names the version
 the seven platforms, the client and the checksums — run on the tag.
 
 **The tag is created by the workflow of the repository.** The workflow
-`the tag of the release` runs on every push to the `main` branch: it
-reads the version of the project, it compares it with the tags that
-exist, and it creates and pushes the tag when the version increased.
+`the tag of the release` runs **after** the continuous integration of
+the commit is green on the `main` branch: it reads the version of the
+project, it compares it with the tags that exist, and it creates and
+pushes the tag when the version increased. A release of a commit that
+did not pass the tests is a release that has to be withdrawn, and the
+tag names the commit that the continuous integration proved.
 
 ```bash
 # the tag that the workflow would create, without creating it
@@ -127,19 +130,21 @@ service, the manifest of the client and the `ARG VERSION` of the
 `Dockerfile` — and it compares the versions as numbers and never as
 texts: `0.10.0` is greater than `0.9.0`.
 
-**The push of the tag needs a token that is not the token of the
-repository.** A push made with the token of the repository does not
-start the workflows of the release, because the events that the token
-of the repository creates are not events for the workflows of the
-repository. The secret `RELEASE_TOKEN` of the repository is a personal
-access token with the permission `contents: write`, and the workflow
-pushes the tag with it.
+**The release is dispatched, and it is not triggered.** A push made
+with the token of the repository does not start a workflow by itself:
+GitHub holds the events of the token of the repository back, so that a
+workflow cannot make itself run in a loop. The workflow that cuts the
+tag dispatches the workflow of the image and the workflow of the
+binaries on the tag, and they run in the context of that tag: the
+version, the revision and the image are the ones of the tag. A tag
+that is pushed by hand starts them by itself, as it always did. No
+secret of the repository is needed for it.
 
-When the secret is not there, the tag is pushed with the token of the
-repository and the workflow says so: the release does not start by
-itself, and it is started by hand with the tag — the workflow of the
-image and the workflow of the binaries both accept the tag of the
-release as an input.
+The tag is annotated, and git refuses an annotated tag without the
+identity of the commit: the workflow sets the identity of the release
+before it cuts the tag, and the command falls back to it when the
+checkout has none, so that a runner without an identity of its own
+still cuts the tag.
 
 The version of a release is written in one command, and it is
 written in the three files of the project — the manifest of the
@@ -152,11 +157,11 @@ git commit -m "release: the version 1.0.0 of the service, of the client and of t
 git push origin main
 ```
 
-The push of the commit is the trigger: the workflow reads the version,
-it compares it with the tags, and it creates the tag. The command
-refuses a version that is not greater than the version of the latest
-tag, and the continuous integration refuses a commit whose three
-versions do not agree.
+The push of the commit is the trigger: the continuous integration runs,
+and the workflow that waits for it reads the version, compares it with
+the tags, and creates the tag. The command refuses a version that is
+not greater than the version of the latest tag, and the continuous
+integration refuses a commit whose three versions do not agree.
 
 ## The milestones of the implementation
 

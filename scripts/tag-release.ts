@@ -14,14 +14,20 @@
  *
  *   bun run scripts/tag-release.ts
  *   bun run scripts/tag-release.ts --dry-run
+ *   bun run scripts/tag-release.ts --github-output "$GITHUB_OUTPUT"
  *
- * The environment:
+ * The tag is pushed with the credentials of the checkout. In the
+ * workflow of the repository, those are the token of the repository: a
+ * push made with the token of the repository does not start a workflow
+ * by itself, and the workflows of the release are dispatched on the tag
+ * by the workflow that cuts it. A tag that is pushed by hand starts
+ * them by itself.
  *
- *   RELEASE_TAG_TOKEN  the token that pushes the tag. A push made with
- *                      the token of the repository does not start the
- *                      workflows of the release: a personal access
- *                      token with the permission `contents: write` is
- *                      needed for the release to start by itself.
+ * The identity of the commit: the tag is annotated, and git refuses an
+ * annotated tag without an identity. The identity of the checkout is
+ * used when it has one, and the identity of the release is used when it
+ * has not: a runner has no identity of its own, and a tag that is
+ * refused for that reason is a release that does not happen.
  */
 
 import { spawnSync } from 'bun'
@@ -199,42 +205,61 @@ function git(args: readonly string[]): string {
 }
 
 /**
+ * Runs a command of git and answers with nothing when it fails.
+ *
+ * A command that asks a question has no answer when the answer is not
+ * there: `git config --get user.name` fails on a runner that has no
+ * identity, and that is not a failure of the release.
+ */
+function gitOptional(args: readonly string[]): string {
+  const result = spawnSync(['git', ...args])
+  if (result.exitCode !== 0) return ''
+  return result.stdout?.toString() ?? ''
+}
+
+/**
  * Pushes the tag of the release.
  *
- * The token of the environment replaces the credentials of the
- * checkout: a push made with the token of the repository does not
- * start the workflows of the release, and a personal access token with
- * the permission `contents: write` does.
- *
- * The credentials are written for the host of the remote, and not for
- * every host: the header of the authorization is a secret, and it is
- * sent to the host of the remote and to no other one.
+ * The push uses the credentials of the checkout. In the workflow of the
+ * repository, those are the token of the repository: a push made with
+ * the token of the repository does not start a workflow by itself, and
+ * the workflow that cuts the tag dispatches the workflows of the
+ * release on the tag. A tag that is pushed by hand starts them.
  */
 function pushTag(tag: string): void {
-  const token = process.env.RELEASE_TAG_TOKEN
-  if (token) {
-    const host = hostOf(git(['remote', 'get-url', 'origin']).trim())
-    const header = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`
-    git(['config', '--local', `http.https://${host}/.extraheader`, header])
-  }
   git(['push', 'origin', `refs/tags/${tag}`])
 }
 
 /**
- * The host of a remote of git.
+ * The identity that cuts the tag.
  *
- * The url of a remote is either an url or a path of the disk: the
- * path has no host, and the credentials of the checkout are used for
- * it.
+ * The tag is annotated, and git refuses an annotated tag without an
+ * identity: a runner has no identity of its own, and the tag of a
+ * release is not refused for a reason that has nothing to do with the
+ * release. The identity of the checkout is used when it has one, and
+ * the identity of the release is used when it has not.
  */
-function hostOf(url: string): string {
-  const match = /^[a-z][a-z0-9+.-]*:\/\/[^/@]*@?([^/:]+)/i.exec(url)
-  return match?.[1] ?? 'github.com'
+function identityArguments(): string[] {
+  const name = gitOptional(['config', '--get', 'user.name']).trim()
+  const email = gitOptional(['config', '--get', 'user.email']).trim()
+  if (name.length > 0 && email.length > 0) return []
+  return ['-c', 'user.name=Depot', '-c', 'user.email=depot@ggpwnkthx.com']
 }
 
 /** The command of the release. */
 export function main(argv: readonly string[]): number {
   const dryRun = argv.includes('--dry-run')
+  const output = argv.indexOf('--github-output')
+  const outputFile = output >= 0 ? argv[output + 1] : undefined
+  if (output >= 0 && !outputFile) {
+    throw new Error('the option --github-output needs the file of the outputs')
+  }
+  /** Writes the outputs of the run, when the caller asked for them. */
+  const publish = (values: Record<string, string>): void => {
+    if (!outputFile) return
+    const lines = Object.entries(values).map(([key, value]) => `${key}=${value}`)
+    writeFileSync(outputFile, `${lines.join('\n')}\n`, { flag: 'a' })
+  }
   const set = argv.indexOf('--set')
   if (set >= 0) {
     const version = argv[set + 1]
@@ -298,6 +323,7 @@ export function main(argv: readonly string[]): number {
         tags: tags.length,
       })
     )
+    publish({ created: 'false', tag: '' })
     return 0
   }
 
@@ -310,15 +336,17 @@ export function main(argv: readonly string[]): number {
         previous: decision.previous,
       })
     )
+    publish({ created: 'false', tag: decision.tag })
     return 0
   }
 
   if (tags.includes(decision.tag)) {
     console.log(JSON.stringify({ level: 'info', msg: 'the tag exists already', tag: decision.tag }))
+    publish({ created: 'false', tag: decision.tag })
     return 0
   }
 
-  git(['tag', '-a', decision.tag, '-m', `the release ${decision.tag}`])
+  git([...identityArguments(), 'tag', '-a', decision.tag, '-m', `the release ${decision.tag}`])
   pushTag(decision.tag)
   console.log(
     JSON.stringify({
@@ -326,21 +354,19 @@ export function main(argv: readonly string[]): number {
       msg: 'the tag of the release is pushed',
       tag: decision.tag,
       previous: decision.previous,
-      inert: !process.env.RELEASE_TAG_TOKEN,
     })
   )
-  if (!process.env.RELEASE_TAG_TOKEN) {
-    console.log(
-      JSON.stringify({
-        level: 'warn',
-        msg:
-          'the tag was pushed with the token of the repository: the workflows of the release ' +
-          'do not start with it. Set the secret RELEASE_TOKEN of the repository, or start them ' +
-          'by hand with the tag.',
-        tag: decision.tag,
-      })
-    )
-  }
+  console.log(
+    JSON.stringify({
+      level: 'info',
+      msg:
+        'the tag is pushed with the credentials of the checkout: the workflows of the release ' +
+        'are dispatched on it by the workflow that cut it, because a push made with the token ' +
+        'of the repository does not start a workflow by itself',
+      tag: decision.tag,
+    })
+  )
+  publish({ created: 'true', tag: decision.tag })
   return 0
 }
 

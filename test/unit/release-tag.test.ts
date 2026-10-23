@@ -5,10 +5,12 @@ import { join } from 'node:path'
 import {
   compareVersions,
   decideTag,
+  main,
   parseVersion,
   readProjectVersions,
   writeProjectVersion,
 } from '../../scripts/tag-release'
+import { git } from '../../scripts/compatibility-git'
 
 /**
  * The tag of a release (spec §16).
@@ -130,5 +132,98 @@ describe('the decision of the tag', () => {
   test('the highest tag is the one with the numbers and not the one with the text', () => {
     const decision = decideTag(versions, ['v0.9.0', 'v0.10.0'])
     expect(decision?.previous).toBe('v0.10.0')
+  })
+})
+
+/**
+ * The tag of a release, on a checkout that is cut like the runner of
+ * the workflow cuts it: without an identity of its own.
+ */
+describe('the tag of the release, on a runner', () => {
+  /** Builds a checkout with a remote, a commit and a tag. */
+  function checkout(root: string): { project: string; remote: string } {
+    const remote = join(root, 'origin.git')
+    const project = join(root, 'project')
+    mkdirSync(project, { recursive: true })
+    expect(git(['init', '--bare', '--quiet', remote]).status).toBe(0)
+    expect(git(['init', '--quiet', project]).status).toBe(0)
+    mkdirSync(join(project, 'packages/client'), { recursive: true })
+    writeFileSync(
+      join(project, 'package.json'),
+      '{\n  "name": "data-backend",\n  "version": "0.3.0",\n  "private": true\n}\n'
+    )
+    writeFileSync(
+      join(project, 'packages/client/package.json'),
+      '{\n  "name": "@data-backend/client",\n  "version": "0.3.0"\n}\n'
+    )
+    writeFileSync(join(project, 'Dockerfile'), 'FROM oven/bun:1.4.3\nARG VERSION=0.3.0\n')
+    const identity = ['-c', 'user.name=Test', '-c', 'user.email=test@example.test']
+    expect(git(['add', '--all'], project).status).toBe(0)
+    expect(git([...identity, 'commit', '--quiet', '-m', 'the release'], project).status).toBe(0)
+    expect(
+      git([...identity, 'tag', '-a', 'v0.2.0', '-m', 'the release v0.2.0'], project).status
+    ).toBe(0)
+    expect(git(['remote', 'add', 'origin', remote], project).status).toBe(0)
+    expect(
+      git(['push', '--quiet', 'origin', 'HEAD:refs/heads/main', 'refs/tags/v0.2.0'], project).status
+    ).toBe(0)
+    return { project, remote }
+  }
+
+  test('the tag is cut and pushed without an identity of the checkout', () => {
+    const root = mkdtempSync(join(tmpdir(), 'depot-tag-'))
+    const previous = process.cwd()
+    const previousGlobal = process.env.GIT_CONFIG_GLOBAL
+    try {
+      const { project, remote } = checkout(root)
+      // A runner has no identity of its own: the global one is not
+      // there and the checkout has none.
+      process.env.GIT_CONFIG_GLOBAL = '/dev/null'
+      const output = join(root, 'output.txt')
+      process.chdir(project)
+      const code = main(['--github-output', output])
+      process.chdir(previous)
+      expect(code).toBe(0)
+      expect(readFileSync(output, 'utf8')).toContain('created=true')
+      expect(readFileSync(output, 'utf8')).toContain('tag=v0.3.0')
+      // The tag is in the remote, and it is an annotated one.
+      const tags = git(['tag', '--list', 'v*'], remote)
+      expect(tags.stdout).toContain('v0.3.0')
+      expect(git(['cat-file', '-t', 'v0.3.0'], remote).stdout.trim()).toBe('tag')
+      // It names the release, and it says who cut it.
+      const tag = git(['for-each-ref', 'refs/tags/v0.3.0', '--format=%(subject)'], remote)
+      expect(tag.stdout).toContain('the release v0.3.0')
+    } finally {
+      process.chdir(previous)
+      if (previousGlobal === undefined) {
+        delete process.env.GIT_CONFIG_GLOBAL
+      } else {
+        process.env.GIT_CONFIG_GLOBAL = previousGlobal
+      }
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('no tag is cut when the version did not increase', () => {
+    const root = mkdtempSync(join(tmpdir(), 'depot-tag-'))
+    const previous = process.cwd()
+    try {
+      const { project, remote } = checkout(root)
+      // The tag of the version exists already: the version did not
+      // increase and there is nothing to cut.
+      const identity = ['-c', 'user.name=Test', '-c', 'user.email=test@example.test']
+      expect(
+        git([...identity, 'tag', '-a', 'v0.3.0', '-m', 'the release v0.3.0'], project).status
+      ).toBe(0)
+      const output = join(root, 'output.txt')
+      process.chdir(project)
+      const code = main(['--github-output', output])
+      process.chdir(previous)
+      expect(code).toBe(0)
+      expect(readFileSync(output, 'utf8')).toContain('created=false')
+    } finally {
+      process.chdir(previous)
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })

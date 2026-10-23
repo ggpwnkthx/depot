@@ -17,6 +17,28 @@ before the version `1.0.0`: the gates of the repository are green, and
 the two gates that are outside of it are listed in
 [the readiness of the version 1.0.0](release-readiness.md).
 
+### Fixed
+
+- **The tag of the release is cut after the continuous integration is
+  green.** The workflow `the tag of the release` ran on every push to
+  the `main` branch, in parallel with the checks of the commit: a tag
+  could publish a commit that did not pass the tests. It waits for the
+  checks now, and it tags the commit that they proved, and not the head
+  of the branch.
+- **The tag of the release is cut with an identity.** The tag is
+  annotated, and git refuses an annotated tag without the identity of
+  the commit: the runner has none, and the release of the version
+  `0.3.0` failed on it. The workflow sets the identity of the release
+  before it cuts the tag, and the command falls back to it when the
+  checkout has none.
+- **The release of the tag is dispatched and not hoped for.** A push
+  made with the token of the repository does not start a workflow by
+  itself: GitHub holds the events of the token of the repository back,
+  so that a workflow cannot make itself run in a loop. The workflow
+  that cuts the tag dispatches the workflow of the image and the
+  workflow of the binaries on the tag, and the secret of the
+  repository is not needed any more.
+
 ## 0.3.0 — the history of a record and the current platform (2026-10-23)
 
 A collection may keep the history of the versions of its records, and a

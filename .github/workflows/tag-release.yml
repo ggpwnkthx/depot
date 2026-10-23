@@ -1,27 +1,38 @@
 name: the tag of the release
 
-# The workflow runs on a push to the main branch: it reads the version
-# of the project, and it creates the tag of the release when the
-# version increased. The tag is what the workflows of the release run
-# on: the image of the release, the binaries of the release and the
-# client of the release.
+# The workflow cuts the tag of a release when the version of the project
+# goes up. The tag is what the workflows of the release run on: the
+# image of the release, the binaries of the release and the client of
+# the release.
 #
 #   git commit -m "release: the version 1.0.0 of the service, of the client and of the image"
 #   git push origin main
 #
-# The push of the tag needs a token that is not the token of the
-# repository: a push made with the token of the repository does not
-# start the workflows of the release, because the events that the token
-# of the repository creates are not events for the workflows of the
-# repository. The secret `RELEASE_TOKEN` of the repository is a
-# personal access token with the permission `contents: write`.
+# The tag is cut **after** the CI of the commit is green: a release of
+# a commit that did not pass the tests is a release that has to be
+# withdrawn. The tag names the commit that the CI proved, and not the
+# head of the branch: two commits that land in the meantime do not
+# change what is released.
+#
+# The release is **dispatched** and not triggered. A push made with the
+# token of the repository does not start a workflow by itself: GitHub
+# holds the events of the token of the repository back, so that a
+# workflow cannot make itself run in a loop. The two workflows of the
+# release are dispatched on the tag they publish, and they run in the
+# context of that tag: the version, the revision and the image are the
+# ones of the tag. A tag that is pushed by hand starts them by itself,
+# as it always did.
 #
 # The workflow can also be started by hand, and it prints the tag it
 # would create without creating it when the input `dry_run` is set.
 
 on:
-  push:
+  # The CI of the commit has to be green before the release is cut.
+  workflow_run:
+    workflows: ['the checks of the data backend']
+    types: [completed]
     branches: [main]
+  # A run by hand, for the commit that is already merged.
   workflow_dispatch:
     inputs:
       dry_run:
@@ -30,15 +41,37 @@ on:
         default: false
 
 permissions:
+  # The tag is pushed to the repository: it is what publishes the
+  # release.
   contents: write
+  # The workflows of the release are dispatched by this one.
+  actions: write
+
+# Two runs at the same time would read the same tags and would push two
+# tags: the second one waits for the first.
+concurrency:
+  group: the-tag-of-the-release
+  cancel-in-progress: false
 
 jobs:
   tag:
     name: the tag of the release
+    # The CI of the commit was red: there is no release. A run of the CI
+    # on a pull request is not one: a tag of it would publish a release
+    # that was never merged.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       (github.event.workflow_run.event == 'push' ||
+        github.event.workflow_run.event == 'workflow_dispatch'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
+          # The commit that the CI proved: the tag points at it, and not
+          # at the head of the branch, which may have moved since.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           # The tags are the history of the versions: the workflow
           # compares the version of the project with the tags that
           # exist, and it needs all of them.
@@ -49,13 +82,37 @@ jobs:
         with:
           bun-version: 1.4.3
 
+      - name: the installation
+        run: bun install --frozen-lockfile
+
+      - name: the identity of the commit
+        run: |
+          # The tag is annotated: it says which release it names, and it
+          # says who cut it. The runner has no identity of its own, and
+          # a tag that is annotated without one is refused by git.
+          git config user.name "Depot"
+          git config user.email "depot@ggpwnkthx.com"
+
       - name: the tag of the release
+        id: tag
+        run: |
+          set -euo pipefail
+          bun run scripts/tag-release.ts \
+            ${{ inputs.dry_run == true && '--dry-run' || '' }} \
+            --github-output "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+
+      # The release is dispatched on the tag: the workflows read the
+      # version and the revision of the tag they publish.
+      - name: the release of the tag
+        if: steps.tag.outputs.created == 'true'
         env:
-          # The token that pushes the tag. It is the personal access
-          # token of the repository: the token of the repository does
-          # not start the workflows of the release.
-          RELEASE_TAG_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-        run: bun run scripts/tag-release.ts ${{ inputs.dry_run == true && '--dry-run' || '' }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          gh workflow run release.yml --ref "${TAG}"
+          gh workflow run release-binaries.yml --ref "${TAG}" -f "tag=${TAG}"
 
       - name: the state of the release
         run: |
@@ -64,6 +121,8 @@ jobs:
             echo "### The tag of the release"
             echo
             echo "The version of the project is \`$(node -p "require('./package.json').version")\`."
+            echo
+            echo "The tag of the release is \`${{ steps.tag.outputs.tag || 'none' }}\`."
             echo
             echo "The tags of the repository:"
             echo
