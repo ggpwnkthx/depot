@@ -151,16 +151,3 @@ export class ServiceError extends Error {
     this.headers = options.headers ?? {}
   }
 }
-
-/** Builds an error of the service. */
-export function fail(
-  code: ErrorCode,
-  options: {
-    message?: string
-    details?: readonly ErrorDetail[]
-    headers?: Record<string, string>
-    cause?: unknown
-  } = {}
-): ServiceError {
-  return new ServiceError(code, options)
-}

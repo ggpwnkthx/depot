@@ -8,7 +8,7 @@
  */
 
 import type { ErrorCode, ErrorDetail } from '../protocol/errors'
-import { ERROR_MESSAGE, ERROR_STATUS, type ServiceError } from '../protocol/errors'
+import { ERROR_MESSAGE, type ServiceError } from '../protocol/errors'
 
 /** The envelope of an error. */
 export interface ErrorEnvelope {
@@ -33,9 +33,4 @@ export function envelopeFor(error: ServiceError, requestId: string): ErrorEnvelo
     envelope.error.details = [...error.details]
   }
   return envelope
-}
-
-/** The status of an error code. */
-export function statusOf(code: ErrorCode): number {
-  return ERROR_STATUS[code]
 }

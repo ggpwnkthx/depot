@@ -27,55 +27,28 @@ import {
   validateDiscovery,
 } from './access-context'
 
-export {
-  ACCESS_CONTEXT_VERSION,
-  type AccessContext,
-  type AccessContextClient,
-  type AccessContextDiscovery,
-  type AccessContextRequest,
-  CLOCK_TOLERANCE_MS,
-  MAX_CONTEXT_BODY_BYTES,
-  MAX_LIFETIME_MS,
-  MAX_PERMISSION_KEYS,
-  contextCacheKey,
-  validateContext,
-  validateDiscovery,
+export type {
+  AccessContext,
+  AccessContextClient,
+  AccessContextRequest,
 } from './access-context'
 export {
-  ACTIONS,
-  type Action,
-  MAX_POLICIES,
-  MAX_POLICY_BUNDLE_BYTES,
-  PERMISSION_KEY_PATTERN,
-  POLICY_BUNDLE_VERSION,
   type Policy,
   type PolicyBundle,
   bundleVersionOf,
   parsePolicyBundle,
 } from './policies'
 export {
-  FILTER_OPERATORS,
   type FilterNode,
-  FilterError,
-  MAX_FILTER_DEPTH,
-  MAX_FILTER_LEAVES,
-  MAX_FILTER_VALUES,
-  type FilterOperator,
-  SUBSTITUTIONS,
   type SubstitutionContext,
-  type SubstitutionName,
   compileFilter,
   evaluateFilter,
   parseFilter,
   quoteIdentifier,
-  resolveSubstitutions,
   sqlTypeOf,
-  validateOperand,
 } from './filter'
 export {
   type AuthorizationInput,
-  type WriteDecision,
-  type WriteRequest,
   applicablePolicies,
   filterSortIntersection,
   readableUnion,
@@ -358,9 +331,4 @@ export class ContextResolver {
       deadline: entry.deadline,
     }
   }
-}
-
-/** The fingerprint of the permission keys of a context. */
-export function permissionFingerprint(keys: readonly string[]): string {
-  return [...keys].sort().join(',')
 }

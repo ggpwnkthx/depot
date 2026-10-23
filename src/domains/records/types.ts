@@ -279,9 +279,6 @@ export interface RecordsServiceOptions {
   readonly subscribers: readonly SubscriberLike[]
 }
 
-/** The maximum size of a body of a record, in bytes. */
-export const MAX_RECORD_BODY_BYTES = 256 * 1024
-
 /** The maximum number of explicitly selected fields. */
 export const MAX_SELECTED_FIELDS = 50
 
@@ -338,9 +335,6 @@ export const MAX_SEARCH_LENGTH = 256
 
 /** The default number of the groups of an aggregate. */
 export const DEFAULT_AGGREGATE_GROUPS = 100
-
-/** The maximum depth of an expansion. */
-export const MAX_EXPANSION_DEPTH = 1
 
 /** The lifetime of a cursor, in milliseconds. */
 export const CURSOR_LIFETIME_MS = 15 * 60 * 1000

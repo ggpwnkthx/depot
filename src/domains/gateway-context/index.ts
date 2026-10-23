@@ -28,35 +28,15 @@ import {
 } from './verify'
 
 export {
-  type IdentitySignatureAlgorithm,
-  type IdentitySignatureVersion,
   type IdentityVerificationConfig,
   type LegacyIdentityMode,
-  type RouteBinding,
-  BINDING_FILE_VERSION,
   DEFAULT_LEGACY_IDENTITY_MODE,
-  IDENTITY_SIGNATURE_VERSIONS,
-  LEGACY_BINDING_FILE_VERSION,
-  LEGACY_IDENTITY_MODES,
-  MAX_BINDINGS,
-  WORKSPACE_PLACEHOLDER,
-  isUuid,
   legacyBindings,
   parseBindingsFile,
 } from './bindings'
 export {
-  EMAIL_HEADER,
-  FORWARDED_HOST_HEADER,
-  IDENTITY_SIGNATURE_TYPE,
-  ROLES_HEADER,
-  SIGNATURE_HEADER,
-  SUBJECT_HEADER,
-  WORKSPACE_HEADER,
   type IdentityVerification,
-  type SignedRequest,
-  type WrittenIdentity,
   canonicalIdentityPayload,
-  matchBinding,
   matchPattern,
   verifyIdentitySignature,
 } from './verify'

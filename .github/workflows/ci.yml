@@ -54,6 +54,8 @@ jobs:
           bun run format:check
       - name: the boundaries
         run: bun run architecture
+      - name: the dead code
+        run: bun run deadcode
       - name: the rules of the domains
         run: bun test test/unit
       - name: the fuzzing of the trust boundary

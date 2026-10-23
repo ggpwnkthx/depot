@@ -243,9 +243,6 @@ function parseIdentityConfig(raw: unknown, where: string): IdentityVerificationC
  */
 export type LegacyIdentityMode = 'refuse' | 'warn' | 'allow'
 
-/** The mode of the legacy identity that a deployment may choose. */
-export const LEGACY_IDENTITY_MODES: readonly LegacyIdentityMode[] = ['refuse', 'warn', 'allow']
-
 /**
  * The default of the mode of the legacy identity.
  *

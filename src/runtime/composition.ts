@@ -57,17 +57,6 @@ export interface CompositionOptions {
   readonly migrationsDir?: string
 }
 
-/**
- * Reads the derived identity key of a gateway.
- *
- * The file holds the key of the signature of the identity, in base64 or
- * in hexadecimal. It is the derived key and not the secret of the
- * session: the two are not the same secret and they are not confused.
- *
- * @deprecated the loader of the keys is `src/runtime/identity-keys.ts`.
- */
-export { readIdentityKey } from './identity-keys'
-
 /** Builds the runtime of the process. */
 export async function createRuntime(options: CompositionOptions = {}): Promise<Runtime> {
   const settings = readEnv(options.env)

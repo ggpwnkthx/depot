@@ -218,8 +218,3 @@ function normalizeValue(
       return { ok: false, code: 'TYPE_MISMATCH' }
   }
 }
-
-/** The default of a field, when the field has one. */
-export function defaultOf(definition: FieldDefinition): unknown {
-  return definition.default
-}

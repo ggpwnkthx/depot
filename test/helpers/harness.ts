@@ -7,7 +7,7 @@
  * real integration is produced by the compatibility harness.
  */
 
-import { CompactSign, base64url, importPKCS8, importSPKI, type CryptoKey } from 'jose'
+import { CompactSign, importPKCS8, importSPKI, type CryptoKey } from 'jose'
 import { generateKeyPairSync } from 'node:crypto'
 import { createApp } from '../../src/app/app'
 import { ContextResolver } from '../../src/domains/authorization'
@@ -43,17 +43,6 @@ export const PRINCIPAL_ID = '11111111-1111-4111-8111-111111111111'
 export const TENANT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 /** The tenant of the other workspace. */
 export const OTHER_TENANT_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
-
-/**
- * The derived key of the identity of the tests.
- *
- * It is the legacy format: a symmetric key that signs and that verifies.
- * It is kept for the tests of the legacy mode, and it is not the key of
- * the current path.
- */
-export const IDENTITY_KEY = new Uint8Array(
-  Buffer.from('0123456789abcdef0123456789abcdef0123456789abcdef', 'utf8')
-)
 
 /**
  * The key pair of the identity of the tests.
@@ -329,44 +318,4 @@ export async function sign(
     .sign((await identityKeys()).privateKey)
   const [header, , signature] = jws.split('.')
   return `v5=${header}..${signature}`
-}
-
-/**
- * Signs a request the way the legacy gateway did.
- *
- * The format is the symmetric one: a detached JWS signed with `HS256`
- * and the key that is derived from the secret of the sessions.
- */
-export async function signLegacy(
-  method: string,
-  path: string,
-  query: string,
-  host: string,
-  subject: string,
-  workspaceId: string,
-  roles: readonly string[],
-  email: string | undefined,
-  key: Uint8Array = IDENTITY_KEY
-): Promise<string> {
-  const payload = JSON.stringify({
-    v: 'v4',
-    method: method.toUpperCase(),
-    path,
-    query,
-    host: host.toLowerCase(),
-    subject,
-    workspaceId,
-    email: email ?? '',
-    roles: [...roles].sort(),
-  })
-  const jws = await new CompactSign(new TextEncoder().encode(payload))
-    .setProtectedHeader({ alg: 'HS256', typ: 'shuttle-identity' })
-    .sign(key)
-  const [header, , signature] = jws.split('.')
-  return `v4=${header}..${signature}`
-}
-
-/** The base64 of the identity of a body. */
-export function base64(value: Uint8Array): string {
-  return base64url.encode(value)
 }

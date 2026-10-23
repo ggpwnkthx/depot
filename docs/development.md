@@ -62,6 +62,7 @@ bun run typecheck
 bun run lint
 bun run format:check
 bun run architecture
+bun run deadcode
 bun test test/unit test/contract test/integration test/architecture packages/client/test
 bun run test:mutation
 bun run test:compat
@@ -88,6 +89,7 @@ a build whose dependencies carry a known vulnerability.
 | `bun run scripts/backup.sh`, `restore.sh` | The backup and the rehearsal of the restore. |
 | `bash scripts/rehearse-backup.sh` | The rehearsal of the backup and of the restore, on a server of its own. |
 | `bun run scripts/architecture.ts` | The check of the boundaries of the code. |
+| `bun run deadcode` | The hunt of the dead code: the modules that no root reaches, the names that nobody reads and the dependencies that nothing uses. |
 | `bun run scripts/capacity.ts` | The measurement of the capacity. |
 | `bun run scripts/scale.ts` | The plan of the statements at a million rows, and the walk of every page. |
 | `bun run scripts/generate-client.ts` | The types of the collections of the manifest. |

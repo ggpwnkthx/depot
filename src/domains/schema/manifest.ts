@@ -152,9 +152,6 @@ export const SERVER_FIELDS = [
   'version',
 ] as const
 
-/** The type of a server maintained field. */
-export type ServerField = (typeof SERVER_FIELDS)[number]
-
 /** The fields a client may never write. */
 export const SERVER_FIELD_SET: ReadonlySet<string> = new Set(SERVER_FIELDS)
 

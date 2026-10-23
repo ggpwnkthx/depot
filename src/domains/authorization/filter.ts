@@ -42,9 +42,6 @@ export const MAX_FILTER_VALUES = 100
 /** The names of the server substitutions. */
 export const SUBSTITUTIONS = ['$principalId', '$tenantId', '$workspaceId'] as const
 
-/** The name of a server substitution. */
-export type SubstitutionName = (typeof SUBSTITUTIONS)[number]
-
 /** The values the substitutions are replaced with. */
 export interface SubstitutionContext {
   readonly principalId: string

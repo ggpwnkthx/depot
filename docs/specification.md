@@ -1482,6 +1482,7 @@ appropriate automated check.
 | The history of the versions | The image of a version is written by the statement of the change, a change that the guard refuses writes no image, a version that the caller may not read is not found, and a rollback is authorized by the policies of the deployment. |
 | The integration of the subscribers | The claims of several workers, the expiry of the leases, the duplicated delivery, the exhaustion of the retries, the missing handlers, the revocation of the service principal and the bounds of the depth of the cause. |
 | The architecture | The imports that are allowed, the public entry points, the absence of a cycle and the construction of the private adapters. |
+| The dead code | The modules that no root reaches, the exported names that nobody reads, and the dependencies that nothing uses. |
 | The operations and the load | The deadlines cancel the SQL, the resources stay bounded, the failures of the dependencies fail closed, the drain completes, and the restore is rehearsed. |
 
 The adversarial cases are mandatory:

@@ -25,20 +25,3 @@ export interface WorkspaceIdentity {
   /** The state of the workspace. */
   readonly status: WorkspaceStatus
 }
-
-/** The slug of a workspace: 1 to 63 characters, in a tenant unique. */
-export const WORKSPACE_SLUG_PATTERN = /^[a-z][a-z0-9_-]{0,62}$/
-
-/** The maximum length of the display name of a workspace. */
-export const WORKSPACE_DISPLAY_NAME_MAX = 200
-
-/** Reports whether a slug is a valid slug of a workspace. */
-export function isValidWorkspaceSlug(slug: string): boolean {
-  return WORKSPACE_SLUG_PATTERN.test(slug)
-}
-
-/** Reports whether a display name is a valid display name. */
-export function isValidWorkspaceDisplayName(name: string): boolean {
-  const length = [...name].length
-  return length >= 1 && length <= WORKSPACE_DISPLAY_NAME_MAX
-}

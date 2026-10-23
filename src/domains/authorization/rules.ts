@@ -11,7 +11,7 @@
  */
 
 import type { ManifestBundle } from '../schema'
-import { type FilterNode, evaluateFilter, type SubstitutionContext } from './filter'
+import { evaluateFilter, type SubstitutionContext } from './filter'
 import type { Action, Policy, PolicyBundle } from './policies'
 
 /** The input of the composition. */
@@ -141,9 +141,4 @@ export function selectWritePolicy(
     return { allowed: true, policy }
   }
   return { allowed: false, reason: sawCandidate ? 'where_not_matched' : 'field_not_granted' }
-}
-
-/** The predicate of a policy, for the diagnostics of the deployment. */
-export function predicateOf(policy: Policy): FilterNode {
-  return policy.where
 }

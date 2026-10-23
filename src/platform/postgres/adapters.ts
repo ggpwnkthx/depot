@@ -6,7 +6,6 @@
  * never imported by a domain.
  */
 
-import { randomUUID } from 'node:crypto'
 import type { AuditEntry, AuditPage, AuditReader, AuditSink } from '../../domains/audit'
 import type { Delivery, DomainEvent, Outbox, Subscriber } from '../../domains/events'
 import type { DataStore, SubscriberLike, UnitOfWork } from '../../domains/records'
@@ -329,9 +328,4 @@ export class PostgresDeliveryStore {
       event: row.payload as unknown as DomainEvent,
     }))
   }
-}
-
-/** The identifier of a new audit entry. */
-export function newAuditId(): string {
-  return randomUUID()
 }

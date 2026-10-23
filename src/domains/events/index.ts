@@ -92,15 +92,6 @@ export interface Subscriber {
   readonly handler: SubscriberHandler
 }
 
-/** Reports whether a subscriber handles an event. */
-export function subscriberHandles(subscriber: Subscriber, event: DomainEvent): boolean {
-  const collections = subscriber.filter.collections
-  if (collections && !collections.includes(event.collection)) return false
-  const types = subscriber.filter.types
-  if (types && !types.includes(event.type)) return false
-  return true
-}
-
 /**
  * The outbox.
  *
@@ -111,11 +102,4 @@ export function subscriberHandles(subscriber: Subscriber, event: DomainEvent): b
 export interface Outbox {
   /** Writes an event and its deliveries. */
   append: (event: DomainEvent, subscribers: readonly Subscriber[], unit: unknown) => Promise<void>
-}
-
-/** The claim of a delivery. */
-export interface DeliveryClaim {
-  readonly delivery: Delivery
-  /** The moment the lease of the claim expires. */
-  readonly leaseExpiresAt: string
 }

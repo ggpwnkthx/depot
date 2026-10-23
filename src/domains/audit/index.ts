@@ -87,6 +87,3 @@ export interface AuditPosition {
 export interface AuditSink {
   append: (entry: AuditEntry, unit: unknown) => Promise<void>
 }
-
-/** The permission that guards the audit log. */
-export const AUDIT_READ_PERMISSION = 'data.audit.read'

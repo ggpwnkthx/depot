@@ -1,0 +1,20 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "packages/client/src/deployment.ts",
+    "packages/client/src/index.ts",
+    "packages/client/test/**/*.ts",
+    "scripts/*.ts",
+    "src/main.ts",
+    "test/**/*.ts"
+  ],
+  "project": [
+    "packages/client/src/**/*.ts",
+    "packages/client/test/**/*.ts",
+    "scripts/**/*.ts",
+    "src/**/*.ts",
+    "test/**/*.ts"
+  ],
+  "ignoreExportsUsedInFile": true,
+  "includeEntryExports": true
+}

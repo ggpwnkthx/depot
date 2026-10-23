@@ -17,6 +17,7 @@ gates of a release", and the findings of the review are in
 | The gate | The state | Where it is proved |
 | --- | --- | --- |
 | The types, the style and the boundaries | Done | `bun run typecheck`, `bun run lint`, `bun run format:check`, `bun run architecture` |
+| The dead code | Done | `bun run deadcode` |
 | The rules of the domains | Done | `bun test test/unit` |
 | The contract of the API | Done | `bun test test/contract` |
 | The database, the transactions and the worker | Done | `bun test test/integration` |
