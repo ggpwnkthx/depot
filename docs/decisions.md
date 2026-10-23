@@ -566,3 +566,40 @@ row, the bound of a collection, and the connection of the pool.
 covers the mutations that were thought of, and a mutation that is
 equivalent — a defect that another defect already covers — survives
 without meaning anything.
+
+## 31. The history of the versions is a typed mirror, and the image is written by the statement of the change
+
+A collection that keeps a history declares the table of its versions in
+the manifest, and the table is a mirror of the table of the collection:
+the same columns, the same names and the same types, plus the columns
+of the history. The image of a version is written by the statement of
+the change itself — the change is a common table expression and the
+image is the insert that reads it — and the rollback is an ordinary
+update, or an ordinary creation for a record that was deleted.
+
+**Why.** The authorization of a version is the authorization of a
+record: the database evaluates the predicates of the read policies over
+the image, and the fields that the policies hide are not in the
+answer. A history held as a json document would have to be evaluated in
+memory, and the evaluation in memory of a predicate is the thing that
+decision 5 removed from the write path. The image is written by the
+statement of the change because a history that is written by another
+statement is a history that may disagree with the record: a change that
+commits without its image, or an image of a change that was refused,
+is a history that lies.
+
+**The cost.** The table of the versions holds the values of the
+business, and it is the first surface of the service that does. It is
+declared by the deployment, it is created by a reviewed migration, it
+is bounded by the retention, and it is read with the policies of the
+deployment. The rollback is not a privileged command: a version that
+the policies forbid to write is refused, and the version of the record
+never moves back.
+
+**The alternative that was refused.** A trigger of the database would
+have written the image without touching the service, and it would have
+caught the writes of the scripts and of the workers. The trigger writes
+the image of every row of the table, and the service would not know
+which rows it wrote: the history of a deployment would then depend on
+the paths that reach the database. The service writes what it changes,
+and it knows what it changed.

@@ -174,6 +174,18 @@ export async function detectDrift(
     for (const [name, definition] of Object.entries(collection.fields)) {
       expected.set(`${collection.table}.${name}`, expectedType(definition.type))
     }
+    // The table of the versions is a mirror of the table of the
+    // collection: the columns of the record carry the same names and
+    // the same types, so the statement of a read of a version is the
+    // statement of a read of a record.
+    if (collection.versions) {
+      for (const [name, type] of SERVER_COLUMN_TYPES) {
+        expected.set(`${collection.versions.table}.${name}`, type)
+      }
+      for (const [name, definition] of Object.entries(collection.fields)) {
+        expected.set(`${collection.versions.table}.${name}`, expectedType(definition.type))
+      }
+    }
   }
 
   for (const [key, type] of expected) {
@@ -208,6 +220,11 @@ export async function detectDrift(
     if (!protectedTables.has(collection.table)) {
       problems.push(`the table "${collection.table}" does not force its row level security`)
     }
+    if (collection.versions && !protectedTables.has(collection.versions.table)) {
+      problems.push(
+        `the table "${collection.versions.table}" does not force its row level security`
+      )
+    }
   }
   for (const table of [
     'platform.workspaces',
@@ -222,6 +239,23 @@ export async function detectDrift(
   }
   return problems
 }
+
+/**
+ * The columns of the server that every table of a record holds.
+ *
+ * The table of the versions is a mirror of the table of the record:
+ * the columns of the server carry the same names and the same types.
+ */
+const SERVER_COLUMN_TYPES: ReadonlyArray<readonly [string, string]> = [
+  ['id', 'uuid'],
+  ['version', 'integer'],
+  ['tenant_id', 'uuid'],
+  ['workspace_id', 'uuid'],
+  ['created_by', 'uuid'],
+  ['created_at', 'timestamp with time zone'],
+  ['updated_by', 'uuid'],
+  ['updated_at', 'timestamp with time zone'],
+]
 
 /** The type of the database of a field of the manifest. */
 function expectedType(type: string): string {

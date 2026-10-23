@@ -106,6 +106,9 @@ const ROUTES: readonly { pattern: RegExp; methods: readonly string[] }[] = [
   { pattern: /^\/ws\/[^/]+\/v1\/aggregate\/[^/]+$/, methods: ['GET'] },
   { pattern: /^\/ws\/[^/]+\/v1\/items\/[^/]+$/, methods: ['GET', 'POST'] },
   { pattern: /^\/ws\/[^/]+\/v1\/items\/[^/]+\/[^/]+$/, methods: ['GET', 'PATCH', 'DELETE'] },
+  { pattern: /^\/ws\/[^/]+\/v1\/items\/[^/]+\/[^/]+\/versions$/, methods: ['GET'] },
+  { pattern: /^\/ws\/[^/]+\/v1\/items\/[^/]+\/[^/]+\/versions\/[^/]+$/, methods: ['GET'] },
+  { pattern: /^\/ws\/[^/]+\/v1\/items\/[^/]+\/[^/]+\/rollback$/, methods: ['POST'] },
   { pattern: /^\/ws\/[^/]+\/v1\/audit$/, methods: ['GET'] },
   { pattern: /^\/ws\/[^/]+\/v1\/openapi\.json$/, methods: ['GET'] },
 ]
@@ -515,6 +518,71 @@ export function createApp(dependencies: AppDependencies): Hono<AppEnv> {
       expectedEtag: c.req.header('if-match') ?? '',
     })
     return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } })
+  })
+
+  app.get(`${scope}/items/:collection/:id/versions`, establish, async (c) => {
+    const context = requireContext(c)
+    readQuery(new URL(c.req.url), [])
+    const result = await dependencies.records.versions(
+      context,
+      collectionOf(c),
+      recordId(recordOf(c))
+    )
+    return c.json({ data: result.data }, 200, { 'cache-control': 'no-store' })
+  })
+
+  app.get(`${scope}/items/:collection/:id/versions/:version`, establish, async (c) => {
+    const context = requireContext(c)
+    readQuery(new URL(c.req.url), [])
+    const version = Number(c.req.param('version'))
+    if (!Number.isInteger(version) || version < 1) {
+      throw new ServiceError('NOT_FOUND')
+    }
+    const result = await dependencies.records.version(
+      context,
+      collectionOf(c),
+      recordId(recordOf(c)),
+      version
+    )
+    return new Response(JSON.stringify({ data: result.representation }), {
+      status: 200,
+      headers: {
+        'content-type': 'application/json',
+        etag: result.etag,
+        'cache-control': 'no-store',
+      },
+    })
+  })
+
+  app.post(`${scope}/items/:collection/:id/rollback`, establish, async (c) => {
+    const context = requireContext(c)
+    readQuery(new URL(c.req.url), [])
+    const body = await readJsonBody(c, dependencies.settings.requests.maxBodyBytes)
+    const unknown = Object.keys(body).filter((key) => key !== 'version')
+    if (unknown.length > 0) {
+      throw new ServiceError('INVALID_REQUEST', {
+        message: `the body holds unknown properties: ${unknown.sort().join(', ')}`,
+      })
+    }
+    const version = body.version
+    if (typeof version !== 'number' || !Number.isInteger(version) || version < 1) {
+      throw new ServiceError('INVALID_REQUEST', {
+        message: 'the version is required and it is a positive integer',
+      })
+    }
+    const result = await dependencies.records.rollback(context, collectionOf(c), {
+      id: recordId(recordOf(c)),
+      version,
+      expectedEtag: c.req.header('if-match') ?? '',
+    })
+    return new Response(JSON.stringify({ data: result.representation }), {
+      status: 200,
+      headers: {
+        'content-type': 'application/json',
+        etag: result.etag ?? '',
+        'cache-control': 'no-store',
+      },
+    })
   })
 
   app.get(`${scope}/audit`, establish, async (c) => {

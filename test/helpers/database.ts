@@ -119,7 +119,7 @@ async function build(): Promise<TestDatabase> {
     await client.connect()
     try {
       await client.query(
-        `truncate data.articles, data.categories, data.article_stats,
+        `truncate data.articles, data.categories, data.article_stats, data.article_versions,
                 platform.audit_entries, platform.outbox_deliveries, platform.outbox_events,
                 platform.idempotency_receipts restart identity cascade`
       )

@@ -3,6 +3,7 @@
 | Data | The default | The rule |
 | --- | --- | --- |
 | The business records | — | The application owns them. There is no automatic purge. |
+| The images of the versions of the records | 90 days | `DATA_VERSIONS_RETENTION_DAYS`. The images that are too old are removed in bounded batches. The tables are the ones that the manifest declares. |
 | The audit log | 90 days | `DATA_AUDIT_RETENTION_DAYS`. The entries are removed in bounded batches. |
 | The receipts of the creations | 24 hours | `DATA_RECEIPT_RETENTION_HOURS`. A key that is reused after that is a new operation. |
 | The completed events and their deliveries | 7 days | `DATA_EVENT_RETENTION_DAYS`. The deliveries of the subscribers that are not finished are never removed. |
@@ -19,6 +20,14 @@ The command runs with the maintenance role, in batches of a thousand
 rows, and it is idempotent. It never touches a business record: there
 is no generic collection endpoint that purges the history of the
 platform, and the audit log may not be edited by the api.
+
+The images of the versions of the records are purged with the same
+command, and the tables are the ones that the manifest of the
+deployment declares: the command reads the manifest with
+`DATA_SCHEMA_BUNDLE_FILE`, and it purges the images that the
+retention of the versions has reached. The current version of a record
+is never purged: it is the row of the collection itself, and it is not
+an image.
 
 The removals of the completed deliveries are followed by the removals of
 the events that have no delivery left. An event with a pending or a

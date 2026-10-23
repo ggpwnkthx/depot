@@ -50,6 +50,44 @@ const CREATE_SERVER_FIELDS = [
 /** The server maintained fields that an update sets. */
 const UPDATE_SERVER_FIELDS = ['updated_by', 'updated_at'] as const
 
+/**
+ * The history of the versions of a collection.
+ *
+ * The table is declared by the manifest of the deployment and it is
+ * created by a reviewed migration: the service writes the images and
+ * reads them, and it never creates a table and never alters one.
+ */
+export interface HistoryChange {
+  /** The table of the versions of the collection. */
+  readonly table: string
+  /** The names of the fields that the change touches. */
+  readonly changedFields: readonly string[]
+  /** The identity of the principal that writes. */
+  readonly principalId: string
+  /** The instant of the write. */
+  readonly now: string
+  /** The version that the change restores, when it is a rollback. */
+  readonly restoredFrom?: number
+}
+
+/**
+ * The write of the image of a version that a change supersedes.
+ *
+ * The image is written by the statement of the change itself: the
+ * image and the change commit together or not at all, and a change that
+ * the guard refuses writes no image.
+ */
+export interface HistoryWrite {
+  /** The table that holds the images. */
+  readonly table: string
+  /** The columns of the insert, in the order of the values. */
+  readonly columns: readonly string[]
+  /** The expressions of the values of the insert. */
+  readonly values: readonly string[]
+  /** The columns that the statement of the change returns. */
+  readonly returning: readonly string[]
+}
+
 /** The context of the guard of a write. */
 export interface GuardContext {
   /** The collection that is written. */
@@ -86,6 +124,13 @@ export interface WriteGuard {
   readonly placeholders: Readonly<Record<string, string>>
   /** The columns of the row that is written, in the order of the insert. */
   readonly columns: readonly string[]
+  /**
+   * The image of the version that the change supersedes.
+   *
+   * It is written by the statement of the change itself, and it is
+   * absent when the collection does not keep a history.
+   */
+  readonly history?: HistoryWrite
 }
 
 /** The options of the guard of a creation. */
@@ -102,6 +147,12 @@ export interface CreateGuardOptions extends GuardContext {
   readonly principalId: string
   /** The instant of the write. */
   readonly now: string
+  /** The version of the row, when it is not the first one. */
+  readonly version?: number
+  /** The author of the creation, when the row is restored. */
+  readonly createdBy?: string
+  /** The instant of the creation, when the row is restored. */
+  readonly createdAt?: string
 }
 
 /** The options of the guard of an update. */
@@ -114,12 +165,16 @@ export interface UpdateGuardOptions extends GuardContext {
   readonly now: string
   /** The scope of the row, with the placeholders of the caller. */
   readonly scopeClause: string
+  /** The history of the versions, when the collection keeps one. */
+  readonly history?: HistoryChange
 }
 
 /** The options of the guard of a deletion. */
 export interface DeleteGuardOptions extends GuardContext {
   /** The scope of the row, with the placeholders of the caller. */
   readonly scopeClause: string
+  /** The history of the versions, when the collection keeps one. */
+  readonly history?: HistoryChange
 }
 
 /**
@@ -137,11 +192,11 @@ export function buildCreateGuard(options: CreateGuardOptions): WriteGuard {
     id: options.id,
     tenant_id: options.tenantId,
     workspace_id: options.workspaceId,
-    created_by: options.principalId,
-    created_at: options.now,
+    created_by: options.createdBy ?? options.principalId,
+    created_at: options.createdAt ?? options.now,
     updated_by: options.principalId,
     updated_at: options.now,
-    version: 1,
+    version: options.version ?? 1,
   }
   for (const field of CREATE_SERVER_FIELDS) {
     placeholders[field] = typed(parameters, serverValues[field], serverType(field))
@@ -229,6 +284,12 @@ export function buildUpdateGuard(options: UpdateGuardOptions): WriteGuard {
     if ((UPDATE_SERVER_FIELDS as readonly string[]).includes(field)) continue
     preFields.add(field)
   }
+  // The image of the version that the change supersedes is the whole
+  // row: the table of the versions is a mirror of the table of the
+  // collection.
+  if (options.history) {
+    for (const field of mirrorColumns(options.collection)) preFields.add(field)
+  }
 
   const preSelections = [...preFields].map((field) => `t.${quote(field)}`)
   const postSelections = checkFields.map((field) => {
@@ -266,6 +327,24 @@ export function buildUpdateGuard(options: UpdateGuardOptions): WriteGuard {
     sources: postSelections.length > 0 ? 'pre, post' : 'pre',
     placeholders,
     columns: [],
+    ...(options.history
+      ? {
+          history: historyWrite({
+            collection: options.collection,
+            table: options.history,
+            parameters: options.parameters,
+            source: 'pre',
+            target: 't',
+            operation: 'update',
+            changedFields: options.history.changedFields,
+            principalId: options.history.principalId,
+            now: options.history.now,
+            ...(options.history.restoredFrom === undefined
+              ? {}
+              : { restoredFrom: options.history.restoredFrom }),
+          }),
+        }
+      : {}),
   }
 }
 
@@ -284,7 +363,145 @@ export function buildDeleteGuard(options: DeleteGuardOptions): WriteGuard {
       substitutions: options.substitutions,
     })
   )
-  return { prefix: '', guard, sources: 't', placeholders: {}, columns: [] }
+  return {
+    prefix: '',
+    guard,
+    sources: 't',
+    placeholders: {},
+    columns: [],
+    ...(options.history
+      ? {
+          history: historyWrite({
+            collection: options.collection,
+            table: options.history,
+            parameters: options.parameters,
+            source: 'removed',
+            target: 't',
+            operation: 'delete',
+            changedFields: options.history.changedFields,
+            principalId: options.history.principalId,
+            now: options.history.now,
+          }),
+        }
+      : {}),
+  }
+}
+
+/**
+ * Builds the statement of an update.
+ *
+ * The statement is the change and, when the collection keeps a history,
+ * the image of the version that the change supersedes. They are one
+ * statement: the image and the change commit together, and a change
+ * that the guard refuses writes no image.
+ */
+export function buildUpdateStatement(options: {
+  guard: WriteGuard
+  collection: CollectionDefinition
+  /** The assignments of the change. */
+  assignments: readonly string[]
+  /** The condition that selects the row and that carries the guard. */
+  condition: string
+}): string {
+  const { guard, collection, assignments, condition } = options
+  if (!guard.history) {
+    return `${guard.prefix}update ${collection.table} set ${assignments.join(', ')}
+       where ${condition}`
+  }
+  return `${guard.prefix}, updated as (
+       update ${collection.table} set ${assignments.join(', ')}
+       where ${condition}
+       returning 1
+     )
+     insert into ${guard.history.table} (${guard.history.columns.map((name) => `"${name}"`).join(', ')})
+     select ${guard.history.values.join(', ')} from pre join updated on true`
+}
+
+/**
+ * Builds the statement of a deletion.
+ *
+ * The statement is the deletion and, when the collection keeps a
+ * history, the tombstone of the record: the image of the last version
+ * of the record and the deletion of the row are one statement.
+ */
+export function buildDeleteStatement(options: {
+  guard: WriteGuard
+  collection: CollectionDefinition
+  /** The condition that selects the row and that carries the guard. */
+  condition: string
+}): string {
+  const { guard, collection, condition } = options
+  if (!guard.history) {
+    return `delete from ${collection.table} as t
+       where ${condition}`
+  }
+  return `with removed as (
+       delete from ${collection.table} as t
+       where ${condition}
+       returning ${guard.history.returning.join(', ')}
+     )
+     insert into ${guard.history.table} (${guard.history.columns.map((name) => `"${name}"`).join(', ')})
+     select ${guard.history.values.join(', ')} from removed`
+}
+
+/**
+ * The mirror of a collection: the columns of a record.
+ *
+ * The table of the versions holds the same columns as the table of the
+ * collection, with the same types: the statement of a read of a version
+ * is then the statement of a read of a record, and the policies of the
+ * deployment are evaluated by the database over the image exactly as
+ * they are over the record.
+ */
+function mirrorColumns(collection: CollectionDefinition): string[] {
+  return [...CREATE_SERVER_FIELDS, ...Object.keys(collection.fields)]
+}
+
+/**
+ * Builds the write of the image of a version that a change supersedes.
+ *
+ * The image is the row before the change, and the row is read by the
+ * expression of the change itself: the image and the change are one
+ * statement, and they commit together.
+ */
+function historyWrite(options: {
+  collection: CollectionDefinition
+  table: HistoryChange
+  parameters: Parameters
+  /** The alias of the expression of the image in the outer statement. */
+  source: string
+  /** The alias of the target of the change. */
+  target: string
+  operation: 'update' | 'delete'
+  changedFields: readonly string[]
+  principalId: string
+  now: string
+  /** The version that the change restores, when it is a rollback. */
+  restoredFrom?: number
+}): HistoryWrite {
+  const mirror = mirrorColumns(options.collection)
+  const columns = [
+    ...mirror,
+    'operation',
+    'changed_fields',
+    'restored_from',
+    'superseded_at',
+    'superseded_by',
+  ]
+  const values = [
+    ...mirror.map((field) => `${options.source}.${quote(field)}`),
+    `'${options.operation}'`,
+    options.parameters.add([...options.changedFields], 'text[]'),
+    options.parameters.add(options.restoredFrom ?? null, 'integer'),
+    options.parameters.add(options.now, 'timestamptz'),
+    options.parameters.add(options.principalId, 'uuid'),
+  ]
+  return {
+    table: options.table.table,
+    columns,
+    values,
+    returning: mirror.map((field) => `${options.target}.${quote(field)}`),
+  }
 }
 
 /**

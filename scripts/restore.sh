@@ -92,6 +92,9 @@ PY
 )"
 PSQL=(psql "${CHECK_URL}" -v ON_ERROR_STOP=1 -tA -q)
 RESTORED=$("${PSQL[@]}" -c "select count(*) from data.articles")
+# The images of the versions are part of the business data: they are
+# restored with it, and the scope that does not exist sees none of them.
+RESTORED_VERSIONS=$("${PSQL[@]}" -c "select count(*) from data.article_versions")
 SCOPED=$("${PSQL[@]}" <<'SQL' | tail -1
 begin;
 select set_config('data.tenant_id', '00000000-0000-0000-0000-000000000000', true),
@@ -100,8 +103,18 @@ select count(*) from data.articles;
 commit;
 SQL
 )
+SCOPED_VERSIONS=$("${PSQL[@]}" <<'SQL' | tail -1
+begin;
+select set_config('data.tenant_id', '00000000-0000-0000-0000-000000000000', true),
+       set_config('data.workspace_id', '00000000-0000-0000-0000-000000000000', true);
+select count(*) from data.article_versions;
+commit;
+SQL
+)
 echo "the restored rows are ${RESTORED}"
 echo "the rows of a scope that does not exist are ${SCOPED}"
+echo "the restored images of the versions are ${RESTORED_VERSIONS}"
+echo "the images of a scope that does not exist are ${SCOPED_VERSIONS}"
 
 echo "the deliveries of the restored state are counted"
 # The deliveries are the metadata of the worker: the role of the api may

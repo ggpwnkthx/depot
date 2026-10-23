@@ -86,12 +86,28 @@ export interface RelationDefinition {
   readonly description?: string
 }
 
+/**
+ * The history of the versions of a collection.
+ *
+ * A collection that keeps a history declares the table that holds the
+ * images of its superseded versions. The table is a mirror of the table
+ * of the collection with the columns of the history, and it is created
+ * by a reviewed migration of the deployment: the service never creates a
+ * table and never alters one.
+ */
+export interface VersionsDefinition {
+  /** The table that holds the images of the superseded versions. */
+  readonly table: string
+}
+
 /** The definition of a collection. */
 export interface CollectionDefinition {
   /** The stable key of the collection. */
   readonly key: string
   /** The physical table of the collection. */
   readonly table: string
+  /** The history of the versions, when the collection keeps one. */
+  readonly versions?: VersionsDefinition
   /** The label of the collection. */
   readonly label: string
   /** The description of the collection. */
@@ -358,6 +374,17 @@ function parseSearch(
   return { fields: fieldsOfSearch, config }
 }
 
+/** Parses the history of the versions of a collection. */
+function parseVersions(raw: unknown, where: string): VersionsDefinition {
+  if (!isObject(raw)) throw new ManifestError(`${where}: the versions is not an object`)
+  assertKnownKeys(raw, ['table'], `${where}: the versions`)
+  const table = raw.table
+  if (typeof table !== 'string' || !/^[a-z][a-z0-9_]{0,62}\.[a-z][a-z0-9_]{0,62}$/.test(table)) {
+    throw new ManifestError(`${where}: the versions has an invalid table`)
+  }
+  return { table }
+}
+
 /**
  * Parses and validates a manifest bundle.
  *
@@ -398,7 +425,7 @@ export function parseManifestBundle(raw: string): ManifestBundle {
     if (!isObject(entry)) throw new ManifestError('a collection of the manifest is not an object')
     assertKnownKeys(
       entry,
-      ['key', 'table', 'label', 'description', 'fields', 'relations', 'search'],
+      ['key', 'table', 'label', 'description', 'fields', 'relations', 'search', 'versions'],
       'a collection of the manifest'
     )
     const key = entry.key
@@ -445,6 +472,10 @@ export function parseManifestBundle(raw: string): ManifestBundle {
     if (entry.search !== undefined) {
       search = parseSearch(entry.search, fields, `the collection "${key}"`)
     }
+    let versions: VersionsDefinition | undefined
+    if (entry.versions !== undefined) {
+      versions = parseVersions(entry.versions, `the collection "${key}"`)
+    }
     const collection: {
       -readonly [Key in keyof CollectionDefinition]: CollectionDefinition[Key]
     } = {
@@ -454,6 +485,7 @@ export function parseManifestBundle(raw: string): ManifestBundle {
       fields,
       relations: {},
       ...(search ? { search } : {}),
+      ...(versions ? { versions } : {}),
     }
     if (entry.description !== undefined) {
       if (typeof entry.description !== 'string') {

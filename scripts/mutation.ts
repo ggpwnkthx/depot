@@ -149,6 +149,22 @@ const MUTATIONS: readonly Mutation[] = [
     to: code("return `jsonb_build_object('§{field}', c§{index})`"),
     test: 'test/contract/mixed-policies.test.ts',
   },
+  {
+    name: 'the image of a version is written when the change is refused',
+    file: 'src/domains/records/write-guard.ts',
+    from: code('from pre join updated on true`'),
+    to: code('from pre`'),
+    test: 'test/integration/versions.test.ts',
+  },
+  {
+    name: 'the policies of the deployment are not evaluated over the image of a version',
+    file: 'src/domains/records/service.ts',
+    from: code(
+      'where §{scopeClause} and §{idClause} and (§{predicate})\n          order by t."version" desc'
+    ),
+    to: code('where §{scopeClause} and §{idClause}\n          order by t."version" desc'),
+    test: 'test/contract/versions.test.ts',
+  },
 ]
 
 /** The budget of one mutation, in milliseconds. */

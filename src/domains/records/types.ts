@@ -170,6 +170,36 @@ export interface DeleteOptions {
   readonly expectedEtag: string
 }
 
+/**
+ * One version of the history of a record.
+ *
+ * The entry holds the version that the record had and what happened to
+ * it: the operation that superseded it, the names of the fields that
+ * the change touched, the instant of the change and its author.
+ */
+export interface VersionEntry {
+  /** The version of the record that the image holds. */
+  readonly version: number
+  /** The change that superseded the version. */
+  readonly operation: 'update' | 'delete'
+  /** The names of the fields that the change touched. */
+  readonly changedFields: readonly string[]
+  /** The instant of the change that superseded the version. */
+  readonly supersededAt: string
+  /** The principal that made the change. */
+  readonly supersededBy: string
+}
+
+/** The options of a rollback. */
+export interface RollbackOptions {
+  /** The identifier of the record. */
+  readonly id: string
+  /** The version that the record is rolled back to. */
+  readonly version: number
+  /** The validator of the current state of the record. */
+  readonly expectedEtag: string
+}
+
 /** The result of a write. */
 export interface WriteResult {
   /** The canonical representation of the record, when there is one. */
@@ -317,6 +347,15 @@ export const CURSOR_LIFETIME_MS = 15 * 60 * 1000
 
 /** The limit of a page. */
 export const MAX_LIMIT = 200
+
+/**
+ * The maximum number of versions of a record that one answer holds.
+ *
+ * The history of a record is bounded by the retention of the history
+ * and not by the answer: the answer holds the latest versions, and the
+ * older ones are outside of it.
+ */
+export const MAX_VERSIONS_PER_RECORD = 200
 
 /** The default of a page. */
 export const DEFAULT_LIMIT = 50

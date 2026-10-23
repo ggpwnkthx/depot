@@ -201,6 +201,90 @@ export function openapiDocument(
           },
         },
       },
+      '/ws/{workspaceId}/v1/items/{collection}/{id}/versions': {
+        get: {
+          summary: 'The history of the versions of a record.',
+          description:
+            'The list holds the versions that are not the current one: the current version of a record is the record itself. A record that was deleted holds its tombstone, the image of its last version with the operation `delete`. The versions that the caller may not read are not in the list.',
+          parameters: [workspaceParameter(), collectionParameter(), idParameter()],
+          responses: {
+            200: jsonResponse('The versions of the record and their meta.'),
+            403: errorResponse('The caller may not read the collection.'),
+            404: errorResponse('The record does not exist, or the collection keeps no history.'),
+          },
+        },
+      },
+      '/ws/{workspaceId}/v1/items/{collection}/{id}/versions/{version}': {
+        get: {
+          summary: 'One version of a record.',
+          description:
+            'The version is read with the policies of the deployment: a version that the caller may not read answers `404`, and the fields that the policies do not grant are not in the answer.',
+          parameters: [
+            workspaceParameter(),
+            collectionParameter(),
+            idParameter(),
+            {
+              name: 'version',
+              in: 'path',
+              required: true,
+              schema: { type: 'integer', minimum: 1 },
+            },
+          ],
+          responses: {
+            200: {
+              description: 'The canonical representation of the version.',
+              headers: { ETag: { schema: { type: 'string' } } },
+              content: { 'application/json': { schema: { type: 'object' } } },
+            },
+            404: errorResponse('The version does not exist or is not readable.'),
+          },
+        },
+      },
+      '/ws/{workspaceId}/v1/items/{collection}/{id}/rollback': {
+        post: {
+          summary: 'Rolls a record back to one of its versions.',
+          description:
+            'The rollback is a write and not a privileged command: the version is read with the policies of the deployment and the write that restores it is authorized by the same policies as any other update. The version of the record never moves back: the record holds the version that follows the one it had.',
+          parameters: [
+            workspaceParameter(),
+            collectionParameter(),
+            idParameter(),
+            {
+              name: 'If-Match',
+              in: 'header',
+              required: true,
+              schema: { type: 'string' },
+              description:
+                'The strong validator of the current state of the record: the validator of the record, or the one of its tombstone when the record was deleted.',
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['version'],
+                  properties: { version: { type: 'integer', minimum: 1 } },
+                },
+              },
+            },
+          },
+          responses: {
+            200: {
+              description: 'The new canonical representation of the record.',
+              headers: { ETag: { schema: { type: 'string' } } },
+              content: { 'application/json': { schema: { type: 'object' } } },
+            },
+            400: errorResponse('The validator is not valid, or the body holds no version.'),
+            403: errorResponse('The policies of the deployment forbid the write.'),
+            404: errorResponse('The version does not exist or is not readable.'),
+            409: errorResponse('The record already holds that version.'),
+            412: errorResponse('The record changed since the validator was issued.'),
+            428: errorResponse('The validator is required.'),
+          },
+        },
+      },
       '/ws/{workspaceId}/v1/audit': {
         get: {
           summary: 'The audit metadata of the workspace.',

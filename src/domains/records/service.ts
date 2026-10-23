@@ -38,10 +38,12 @@ import {
   type ListResult,
   type RecordRow,
   type RecordsServiceOptions,
+  type RollbackOptions,
   type Scope,
   type TransactionOptions,
   type UnitOfWork,
   type UpdateOptions,
+  type VersionEntry,
   type WriteResult,
   CURSOR_LIFETIME_MS,
   DEFAULT_AGGREGATE_GROUPS,
@@ -57,6 +59,7 @@ import {
   MAX_SEARCH_LENGTH,
   MAX_SELECTED_FIELDS,
   MAX_SORT_FIELDS,
+  MAX_VERSIONS_PER_RECORD,
   EXPANSION_CHUNK_BYTES,
   EXPANSION_FIRST_CHUNK_ROWS,
   EXPANSION_MAX_CHUNK_ROWS,
@@ -72,7 +75,13 @@ import {
 } from './canonical'
 import { BodyError, validateBody } from './validation'
 import { ResponseBudget } from './budget'
-import { buildCreateGuard, buildDeleteGuard, buildUpdateGuard } from './write-guard'
+import {
+  buildCreateGuard,
+  buildDeleteGuard,
+  buildDeleteStatement,
+  buildUpdateGuard,
+  buildUpdateStatement,
+} from './write-guard'
 import {
   EXPOSED_SERVER_FIELDS,
   type AggregateMetricColumn,
@@ -803,6 +812,40 @@ export class RecordsService {
     options: UpdateOptions
   ): Promise<WriteResult> {
     const collection = this.#requireCollection(context, collectionKey)
+    const scope = this.#scope(context)
+
+    return await this.#options.store.write(
+      async (unit) =>
+        await this.#applyUpdate(unit, context, collection, {
+          id: options.id,
+          body: options.body,
+          expectedEtag: options.expectedEtag,
+        }),
+      scope,
+      this.#transactionOptions(context)
+    )
+  }
+
+  /**
+   * Applies an update inside the transaction of the request.
+   *
+   * The method is the body of the update, and the rollback of a version
+   * is an update: the two share the guard of the write, the policies of
+   * the deployment, the audit entry, the event and the image of the
+   * version that the change supersedes.
+   */
+  async #applyUpdate(
+    unit: UnitOfWork,
+    context: RequestContext,
+    collection: CollectionDefinition,
+    options: {
+      id: string
+      body: Record<string, unknown>
+      expectedEtag: string
+      /** The version that the change restores, when it is a rollback. */
+      restoredFrom?: number
+    }
+  ): Promise<WriteResult> {
     const readPolicies = this.#requireReadable(context, collection)
     const writePolicies = applicablePolicies(this.#authorization(context), collection.key, 'update')
     if (writePolicies.length === 0) {
@@ -816,107 +859,106 @@ export class RecordsService {
       })
     }
 
-    const scope = this.#scope(context)
     const substitutions = this.#substitutions(context)
 
-    return await this.#options.store.write(
-      async (unit) => {
-        const current = await this.#lockRow(unit, context, collection, options.id, readPolicies)
-        const representation = this.#representationOf(collection, current, readPolicies)
-        if (!etagMatches(expected, etagOf({ data: representation }))) {
-          throw new ServiceError('PRECONDITION_FAILED')
-        }
-        const now = new Date(this.#options.clock.now()).toISOString()
-        // The row after the change: the fields the client writes, the
-        // fields the server maintains and the fields the row already
-        // had. It is the row that the statement of the update produces,
-        // and the check of the policies is evaluated over it.
-        const resulting: Record<string, unknown> = {
-          ...current,
-          ...validated.values,
-          updated_by: context.principalId,
-          updated_at: now,
-          version: Number(current.version ?? 1) + 1,
-        }
-        const decision = selectWritePolicy(writePolicies, {
-          action: 'update',
-          writtenFields: validated.fields,
-          currentRow: current,
-          resultingRow: resulting,
-          context: substitutions,
-        })
-        if (!decision.allowed || !decision.policy) {
-          throw new ServiceError('FORBIDDEN')
-        }
-        const policyId = decision.policy.id
-        await this.#checkReferences(unit, context, collection, validated.values)
+    const current = await this.#lockRow(unit, context, collection, options.id, readPolicies)
+    const representation = this.#representationOf(collection, current, readPolicies)
+    if (!etagMatches(expected, etagOf({ data: representation }))) {
+      throw new ServiceError('PRECONDITION_FAILED')
+    }
+    const now = new Date(this.#options.clock.now()).toISOString()
+    // The row after the change: the fields the client writes, the
+    // fields the server maintains and the fields the row already
+    // had. It is the row that the statement of the update produces,
+    // and the check of the policies is evaluated over it.
+    const resulting: Record<string, unknown> = {
+      ...current,
+      ...validated.values,
+      updated_by: context.principalId,
+      updated_at: now,
+      version: Number(current.version ?? 1) + 1,
+    }
+    const decision = selectWritePolicy(writePolicies, {
+      action: 'update',
+      writtenFields: validated.fields,
+      currentRow: current,
+      resultingRow: resulting,
+      context: substitutions,
+    })
+    if (!decision.allowed || !decision.policy) {
+      throw new ServiceError('FORBIDDEN')
+    }
+    const policyId = decision.policy.id
+    await this.#checkReferences(unit, context, collection, validated.values)
 
-        const parameters = new Parameters()
-        const scopeId = parameters.add(options.id, 'uuid')
-        const scopeTenant = parameters.add(context.tenantId, 'uuid')
-        const scopeWorkspace = parameters.add(context.workspaceId, 'uuid')
-        const scopeClause = `t."id" = ${scopeId} and t."tenant_id" = ${scopeTenant} and t."workspace_id" = ${scopeWorkspace}`
-        const guard = buildUpdateGuard({
-          collection,
-          catalogue: catalogueFor(collection),
-          policies: writeCandidates(writePolicies, validated.fields),
-          substitutions,
-          parameters,
-          written: validated.values,
-          principalId: context.principalId,
-          now,
-          scopeClause,
-        })
-        const assignments = validated.fields.map(
-          (name) => `"${name}" = ${guard.placeholders[name]}`
-        )
-        assignments.push(`"updated_by" = ${guard.placeholders.updated_by}`)
-        assignments.push(`"updated_at" = ${guard.placeholders.updated_at}`)
-        assignments.push('"version" = "version" + 1')
-        const written = await unit.execute(
-          `${guard.prefix}update ${collection.table} set ${assignments.join(', ')}
-       where "id" = ${scopeId}
-         and "tenant_id" = ${scopeTenant}
-         and "workspace_id" = ${scopeWorkspace}
-         and exists (select 1 from ${guard.sources} where (${guard.guard}))`,
-          parameters.values
-        )
-        if (written === 0) {
-          // The guard refused the write. The statement of the database
-          // and the evaluation in memory do not agree, and the statement
-          // is the one that decides: the write is refused.
-          throw new ServiceError('FORBIDDEN')
-        }
-
-        await this.#writeAuditAndEvent(unit, context, {
-          collection: collection.key,
-          recordId: options.id,
-          action: 'update',
-          resultVersion: Number(current.version ?? 1) + 1,
-          changedFields: validated.fields,
-          policyId,
-          causation: null,
-        })
-
-        const updated = await this.#lockRow(
-          unit,
-          context,
-          collection,
-          options.id,
-          readPolicies,
-          false
-        )
-        const newRepresentation = this.#representationOf(collection, updated, readPolicies)
-        return {
-          representation: newRepresentation,
-          etag: etagOf({ data: newRepresentation }),
-          replayed: false,
-          changedFields: validated.fields,
-        }
-      },
-      scope,
-      this.#transactionOptions(context)
+    const parameters = new Parameters()
+    const scopeId = parameters.add(options.id, 'uuid')
+    const scopeTenant = parameters.add(context.tenantId, 'uuid')
+    const scopeWorkspace = parameters.add(context.workspaceId, 'uuid')
+    const scopeClause = `t."id" = ${scopeId} and t."tenant_id" = ${scopeTenant} and t."workspace_id" = ${scopeWorkspace}`
+    const guard = buildUpdateGuard({
+      collection,
+      catalogue: catalogueFor(collection),
+      policies: writeCandidates(writePolicies, validated.fields),
+      substitutions,
+      parameters,
+      written: validated.values,
+      principalId: context.principalId,
+      now,
+      scopeClause,
+      ...(collection.versions
+        ? {
+            history: {
+              table: collection.versions.table,
+              changedFields: validated.fields,
+              principalId: context.principalId,
+              now,
+              ...(options.restoredFrom === undefined ? {} : { restoredFrom: options.restoredFrom }),
+            },
+          }
+        : {}),
+    })
+    const assignments = validated.fields.map((name) => `"${name}" = ${guard.placeholders[name]}`)
+    assignments.push(`"updated_by" = ${guard.placeholders.updated_by}`)
+    assignments.push(`"updated_at" = ${guard.placeholders.updated_at}`)
+    assignments.push('"version" = "version" + 1')
+    const condition = `"id" = ${scopeId}
+       and "tenant_id" = ${scopeTenant}
+       and "workspace_id" = ${scopeWorkspace}
+       and exists (select 1 from ${guard.sources} where (${guard.guard}))`
+    // The image of the version that the change supersedes is written
+    // by the statement of the change itself: the image and the change
+    // commit together, and a change that the guard refuses writes no
+    // image.
+    const written = await unit.execute(
+      buildUpdateStatement({ guard, collection, assignments, condition }),
+      parameters.values
     )
+    if (written === 0) {
+      // The guard refused the write. The statement of the database
+      // and the evaluation in memory do not agree, and the statement
+      // is the one that decides: the write is refused.
+      throw new ServiceError('FORBIDDEN')
+    }
+
+    await this.#writeAuditAndEvent(unit, context, {
+      collection: collection.key,
+      recordId: options.id,
+      action: 'update',
+      resultVersion: Number(current.version ?? 1) + 1,
+      changedFields: validated.fields,
+      policyId,
+      causation: null,
+    })
+
+    const updated = await this.#lockRow(unit, context, collection, options.id, readPolicies, false)
+    const newRepresentation = this.#representationOf(collection, updated, readPolicies)
+    return {
+      representation: newRepresentation,
+      etag: etagOf({ data: newRepresentation }),
+      replayed: false,
+      changedFields: validated.fields,
+    }
   }
 
   // --------------------------------------------------------------- delete
@@ -954,6 +996,7 @@ export class RecordsService {
           throw new ServiceError('FORBIDDEN')
         }
         const policyId = decision.policy.id
+        const now = new Date(this.#options.clock.now()).toISOString()
         const parameters = new Parameters()
         const scopeId = parameters.add(options.id, 'uuid')
         const scopeTenant = parameters.add(context.tenantId, 'uuid')
@@ -969,13 +1012,30 @@ export class RecordsService {
           substitutions,
           parameters,
           scopeClause,
+          ...(collection.versions
+            ? {
+                history: {
+                  table: collection.versions.table,
+                  changedFields: Object.keys(collection.fields),
+                  principalId: context.principalId,
+                  now,
+                },
+              }
+            : {}),
         })
+        // The image of the version that the deletion supersedes is
+        // written by the statement of the deletion itself: the image
+        // and the deletion commit together, and the image is the
+        // tombstone of the record.
         const removed = await unit.execute(
-          `delete from ${collection.table} as t
-       where t."id" = ${scopeId}
+          buildDeleteStatement({
+            guard,
+            collection,
+            condition: `t."id" = ${scopeId}
          and t."tenant_id" = ${scopeTenant}
          and t."workspace_id" = ${scopeWorkspace}
          and (${guard.guard})`,
+          }),
           parameters.values
         )
         if (removed === 0) {
@@ -994,6 +1054,222 @@ export class RecordsService {
           causation: null,
         })
         return { replayed: false, changedFields: [] }
+      },
+      scope,
+      this.#transactionOptions(context)
+    )
+  }
+
+  // -------------------------------------------------------------- versions
+
+  /**
+   * The history of the versions of a record.
+   *
+   * The list holds the versions that are not the current one: the
+   * current version of a record is the row of the collection itself. A
+   * record that was deleted holds its tombstone, the image of its last
+   * version with the operation `delete`.
+   *
+   * The versions that the caller may not read are not in the list: the
+   * predicates of the policies are evaluated by the database over the
+   * image of every version, exactly as they are over the record.
+   */
+  async versions(
+    context: RequestContext,
+    collectionKey: string,
+    id: string
+  ): Promise<{ data: readonly VersionEntry[] }> {
+    const collection = this.#requireCollection(context, collectionKey)
+    const policies = this.#requireReadable(context, collection)
+    const history = collection.versions
+    if (!history) {
+      // The collection does not keep a history: the answer is the
+      // answer of a collection that does not exist.
+      throw new ServiceError('NOT_FOUND')
+    }
+    const catalogue = catalogueFor(collection)
+    const substitutions = this.#substitutions(context)
+    const scope = this.#scope(context)
+
+    return await this.#options.store.read(async (unit) => {
+      const parameters = new Parameters()
+      const scopeClause = `t.tenant_id = ${parameters.add(context.tenantId, 'uuid')} and t.workspace_id = ${parameters.add(context.workspaceId, 'uuid')}`
+      const idClause = `t."id" = ${parameters.add(id, 'uuid')}`
+      const predicate = rowPredicate(policies, parameters, catalogue, substitutions)
+      const rows = await unit.query<{
+        version: number
+        operation: string
+        changed_fields: string[]
+        superseded_at: Date
+        superseded_by: string
+      }>(
+        `select t."version"::int as version,
+                t."operation" as operation,
+                t."changed_fields" as changed_fields,
+                t."superseded_at" as superseded_at,
+                t."superseded_by"::text as superseded_by
+           from ${history.table} t
+          where ${scopeClause} and ${idClause} and (${predicate})
+          order by t."version" desc
+          limit ${MAX_VERSIONS_PER_RECORD}`,
+        parameters.values
+      )
+      const data = rows.map((row) => ({
+        version: Number(row.version),
+        operation: row.operation === 'delete' ? ('delete' as const) : ('update' as const),
+        changedFields: row.changed_fields ?? [],
+        supersededAt: new Date(row.superseded_at).toISOString(),
+        supersededBy: row.superseded_by,
+      }))
+      return { data }
+    }, scope)
+  }
+
+  /**
+   * One version of a record.
+   *
+   * The version is read with the same statement and the same policies
+   * as a record: a version that the caller may not read answers `404`,
+   * and the fields that the policies do not grant are not in the
+   * answer.
+   */
+  async version(
+    context: RequestContext,
+    collectionKey: string,
+    id: string,
+    version: number
+  ): Promise<{ representation: Record<string, unknown>; etag: string }> {
+    const collection = this.#requireCollection(context, collectionKey)
+    const policies = this.#requireReadable(context, collection)
+    const history = collection.versions
+    if (!history) {
+      throw new ServiceError('NOT_FOUND')
+    }
+    const scope = this.#scope(context)
+
+    return await this.#options.store.read(async (unit) => {
+      // The current version of a record is the row of the collection;
+      // the other versions are the images of the history.
+      const row =
+        (await this.#versionImage(
+          unit,
+          context,
+          collection,
+          policies,
+          id,
+          version,
+          history.table
+        )) ??
+        (await this.#versionImage(
+          unit,
+          context,
+          collection,
+          policies,
+          id,
+          version,
+          collection.table
+        ))
+      if (!row) {
+        throw new ServiceError('NOT_FOUND')
+      }
+      const representation = this.#representationOf(collection, row, policies)
+      return { representation, etag: etagOf({ data: representation }) }
+    }, scope)
+  }
+
+  /**
+   * Rolls a record back to one of its versions.
+   *
+   * The rollback is a write and not a privileged command: the version
+   * that is restored is read with the policies of the deployment, and
+   * the write that restores it is authorized by the same policies as
+   * any other update. A version that the caller may not read answers
+   * `404`, and a version that the policies forbid to write answers
+   * `403`.
+   *
+   * The version of the record never moves back: the rollback is a
+   * change like any other, and the record holds the version that
+   * follows the one it had. A record that was deleted is restored with
+   * the image of the version, and its version follows the one of its
+   * tombstone.
+   */
+  async rollback(
+    context: RequestContext,
+    collectionKey: string,
+    options: RollbackOptions
+  ): Promise<WriteResult> {
+    const collection = this.#requireCollection(context, collectionKey)
+    const policies = this.#requireReadable(context, collection)
+    const history = collection.versions
+    if (!history) {
+      throw new ServiceError('NOT_FOUND')
+    }
+    const expected = parseIfMatch(options.expectedEtag)
+    const scope = this.#scope(context)
+
+    return await this.#options.store.write(
+      async (unit) => {
+        const live = await this.#readRow(unit, context, collection, options.id, policies, true)
+        // The validator is the one of the current state of the record:
+        // the validator of the record, or the one of its tombstone when
+        // the record was deleted. The precondition is checked before
+        // anything else: a validator that is stale is stale whatever
+        // the version of the rollback.
+        const current =
+          live ??
+          (await this.#versionImage(
+            unit,
+            context,
+            collection,
+            policies,
+            options.id,
+            null,
+            history.table
+          ))
+        if (!current) {
+          throw new ServiceError('NOT_FOUND')
+        }
+        const currentRepresentation = this.#representationOf(collection, current, policies)
+        if (!etagMatches(expected, etagOf({ data: currentRepresentation }))) {
+          throw new ServiceError('PRECONDITION_FAILED')
+        }
+        const target = await this.#versionImage(
+          unit,
+          context,
+          collection,
+          policies,
+          options.id,
+          options.version,
+          history.table
+        )
+        if (!target) {
+          // The version is the current one of the record: the record
+          // already holds it, and a rollback to itself changes nothing.
+          if (live && Number(live.version) === options.version) {
+            throw new ServiceError('CONFLICT', {
+              message: 'the record already holds that version',
+            })
+          }
+          throw new ServiceError('NOT_FOUND')
+        }
+        if (live) {
+          const body = this.#diffOf(collection, target, live)
+          if (Object.keys(body).length === 0) {
+            throw new ServiceError('CONFLICT', {
+              message: 'the record already holds that version',
+            })
+          }
+          return await this.#applyUpdate(unit, context, collection, {
+            id: options.id,
+            body,
+            expectedEtag: expected,
+            restoredFrom: options.version,
+          })
+        }
+        // The record was deleted: the rollback restores it with the
+        // image of the version, and its version follows the one of the
+        // tombstone.
+        return await this.#restore(unit, context, collection, target, Number(current.version) + 1)
       },
       scope,
       this.#transactionOptions(context)
@@ -1123,6 +1399,28 @@ export class RecordsService {
     policies: readonly Policy[],
     lock = true
   ): Promise<RecordRow> {
+    const row = await this.#readRow(unit, context, collection, id, policies, lock)
+    if (!row) {
+      throw new ServiceError('NOT_FOUND')
+    }
+    return row
+  }
+
+  /**
+   * The row of a record, or nothing when it does not exist.
+   *
+   * The method is the row of the lock without the refusal: the rollback
+   * of a version reads the row to know whether the record exists, and
+   * a record that was deleted is restored instead of updated.
+   */
+  async #readRow(
+    unit: UnitOfWork,
+    context: RequestContext,
+    collection: CollectionDefinition,
+    id: string,
+    policies: readonly Policy[],
+    lock: boolean
+  ): Promise<RecordRow | null> {
     const catalogue = catalogueFor(collection)
     const substitutions = this.#substitutions(context)
     const parameters = new Parameters()
@@ -1140,10 +1438,178 @@ export class RecordsService {
        }`,
       parameters.values
     )
-    if (!row) {
-      throw new ServiceError('NOT_FOUND')
+    return row ? { ...row } : null
+  }
+
+  /**
+   * The image of one version of a record.
+   *
+   * The image is the row of the table of the versions, or the row of
+   * the collection when the version is the current one. The predicates
+   * of the policies are evaluated by the database over the image: a
+   * version that the caller may not read is not found.
+   *
+   * A version of nothing is the last version of the record.
+   */
+  async #versionImage(
+    unit: UnitOfWork,
+    context: RequestContext,
+    collection: CollectionDefinition,
+    policies: readonly Policy[],
+    id: string,
+    version: number | null,
+    table: string
+  ): Promise<RecordRow | null> {
+    const catalogue = catalogueFor(collection)
+    const substitutions = this.#substitutions(context)
+    const parameters = new Parameters()
+    const idPlaceholder = parameters.add(id, 'uuid')
+    const tenantPlaceholder = parameters.add(context.tenantId, 'uuid')
+    const workspacePlaceholder = parameters.add(context.workspaceId, 'uuid')
+    const versionClause =
+      version === null ? '' : `and t."version" = ${parameters.add(version, 'integer')}`
+    const flags = policies.map(
+      (policy, index) =>
+        `(${compileInto(policy.where, parameters, { fields: catalogue, alias: 't', substitutions })}) as m${index}`
+    )
+    const predicate = rowPredicate(policies, parameters, catalogue, substitutions)
+    const row = await unit.queryOne<RecordRow>(
+      `select t.*${flags.length > 0 ? `, ${flags.join(', ')}` : ''} from ${table} t
+       where t."id" = ${idPlaceholder} and t."tenant_id" = ${tenantPlaceholder} and t."workspace_id" = ${workspacePlaceholder}
+         ${versionClause} and (${predicate})
+       order by t."version" desc
+       limit 1`,
+      parameters.values
+    )
+    return row ? { ...row } : null
+  }
+
+  /**
+   * The fields that differ between a version and the current row.
+   *
+   * The rollback writes the fields that changed and leaves the others
+   * alone: the write is the smallest one that puts the record back at
+   * the version, and it is authorized by the policies of the deployment
+   * like any other write.
+   */
+  #diffOf(
+    collection: CollectionDefinition,
+    target: Record<string, unknown>,
+    current: Record<string, unknown>
+  ): Record<string, unknown> {
+    const body: Record<string, unknown> = {}
+    for (const [name, definition] of Object.entries(collection.fields)) {
+      const before = normalizeValue(definition, target[name] ?? null)
+      const now = normalizeValue(definition, current[name] ?? null)
+      if (sameValue(before, now)) continue
+      body[name] = before
     }
-    return { ...row }
+    return body
+  }
+
+  /**
+   * Restores a record that was deleted.
+   *
+   * The restoration is a creation: the policies of the deployment are
+   * evaluated over the image that is restored, exactly as they are over
+   * the image of a creation. The version of the record follows the one
+   * of the tombstone: the counter never moves back, and the identity of
+   * the record and the instant of its creation are the ones it had.
+   */
+  async #restore(
+    unit: UnitOfWork,
+    context: RequestContext,
+    collection: CollectionDefinition,
+    image: Record<string, unknown>,
+    version: number
+  ): Promise<WriteResult> {
+    const policies = applicablePolicies(this.#authorization(context), collection.key, 'create')
+    if (policies.length === 0) {
+      throw new ServiceError('FORBIDDEN')
+    }
+    const substitutions = this.#substitutions(context)
+    const now = new Date(this.#options.clock.now()).toISOString()
+    const id = String(image.id)
+    const createdBy = String(image.created_by ?? context.principalId)
+    const createdAt =
+      image.created_at instanceof Date
+        ? image.created_at.toISOString()
+        : String(image.created_at ?? now)
+    const values: Record<string, unknown> = {}
+    for (const [name, definition] of Object.entries(collection.fields)) {
+      const value = image[name]
+      values[name] =
+        value === undefined || value === null ? null : normalizeValue(definition, value)
+    }
+    const resultingRow: Record<string, unknown> = {
+      id,
+      tenant_id: context.tenantId,
+      workspace_id: context.workspaceId,
+      created_by: createdBy,
+      created_at: createdAt,
+      updated_by: context.principalId,
+      updated_at: now,
+      version,
+      ...values,
+    }
+    const decision = selectWritePolicy(policies, {
+      action: 'create',
+      writtenFields: Object.keys(values),
+      resultingRow,
+      context: substitutions,
+    })
+    if (!decision.allowed || !decision.policy) {
+      throw new ServiceError('FORBIDDEN')
+    }
+    const policyId = decision.policy.id
+    await this.#checkReferences(unit, context, collection, values)
+
+    const parameters = new Parameters()
+    const guard = buildCreateGuard({
+      collection,
+      catalogue: catalogueFor(collection),
+      policies: writeCandidates(policies, Object.keys(values)),
+      substitutions,
+      parameters,
+      values,
+      id,
+      version,
+      tenantId: context.tenantId,
+      workspaceId: context.workspaceId,
+      principalId: context.principalId,
+      createdBy,
+      createdAt,
+      now,
+    })
+    const columnList = guard.columns.map((name) => `"${name}"`).join(', ')
+    const selection = guard.columns.map((name) => `post."${name}"`).join(', ')
+    const written = await unit.execute(
+      `${guard.prefix}insert into ${collection.table} (${columnList}) select ${selection} from post where (${guard.guard})`,
+      parameters.values
+    )
+    if (written === 0) {
+      throw new ServiceError('FORBIDDEN')
+    }
+
+    await this.#writeAuditAndEvent(unit, context, {
+      collection: collection.key,
+      recordId: id,
+      action: 'create',
+      resultVersion: version,
+      changedFields: Object.keys(values),
+      policyId,
+      causation: null,
+    })
+
+    const readPolicies = this.#readPolicies(context, collection.key)
+    const restored = await this.#lockRow(unit, context, collection, id, readPolicies, false)
+    const representation = this.#representationOf(collection, restored, readPolicies)
+    return {
+      representation,
+      etag: etagOf({ data: representation }),
+      replayed: false,
+      changedFields: Object.keys(values),
+    }
   }
 
   /**
@@ -1775,4 +2241,21 @@ function isUniqueViolation(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false
   const code = (error as { code?: string }).code
   return code === '23505'
+}
+
+/**
+ * Reports whether two values of a field are the same.
+ *
+ * The values of a field are compared after their normalization: the
+ * value of a timestamp of the database and the value of the same
+ * timestamp of the answer are the same instant, and the value of a
+ * json field is compared by its content.
+ */
+function sameValue(left: unknown, right: unknown): boolean {
+  if (left === right) return true
+  if (left === null || right === null) return false
+  if (typeof left === 'object' || typeof right === 'object') {
+    return JSON.stringify(left) === JSON.stringify(right)
+  }
+  return false
 }

@@ -49,6 +49,24 @@ reachable, and they do not change the contract of the API.
 
 ### Added
 
+- **The history of the versions of a record.** A collection may keep
+  a history: the manifest declares the table of the versions, and the
+  table is a mirror of the table of the collection. The image of a
+  version is written by the statement of the change itself, so the
+  image and the change commit together, and a change that the guard
+  refuses writes no image. The endpoints are
+  `GET /items/{collection}/{id}/versions`,
+  `GET /items/{collection}/{id}/versions/{version}` and
+  `POST /items/{collection}/{id}/rollback`. A version is read with the
+  policies of the deployment, exactly like a record: a version that the
+  caller may not read answers `404`, and the fields that the policies
+  hide are not in the answer. The rollback is a write and not a
+  privileged command — the same policies authorize it, the version of
+  the record never moves back, and a record that was deleted is
+  restored with the image of its version. The images are purged after
+  ninety days by the command of the retention, and the audit keeps its
+  rule: it holds the names of the fields that changed and never their
+  values.
 - **The gate of the mutation.** The gate breaks the code on purpose —
   the type of the protected header, the expiry of a cursor, the scope
   of a cursor, the fields of a row, the predicates of a write, the

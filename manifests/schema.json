@@ -5,6 +5,7 @@
     {
       "key": "articles",
       "table": "data.articles",
+      "versions": { "table": "data.article_versions" },
       "label": "Articles",
       "description": "The articles of a workspace.",
       "fields": {

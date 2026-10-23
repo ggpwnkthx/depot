@@ -106,7 +106,7 @@ of the api. Each command reads the one it needs.
 | `DATA_DELIVERY_DATABASE_URL` | `delivery.ts` — the metadata of the deliveries. |
 | `DATA_BACKUP_DATABASE_URL`, `DATA_BACKUP_DIR` | `backup.sh`. The role of the backup bypasses the row level security: the backup holds the rows of every tenant. |
 | `DATA_BACKUP_FILE`, `DATA_RESTORE_DATABASE`, `DATA_RUNTIME_DATABASE_URL` | `restore.sh`. |
-| `DATA_AUDIT_RETENTION_DAYS`, `DATA_RECEIPT_RETENTION_HOURS`, `DATA_EVENT_RETENTION_DAYS`, `DATA_RETENTION_ACTOR` | `retention.ts`. |
+| `DATA_AUDIT_RETENTION_DAYS`, `DATA_RECEIPT_RETENTION_HOURS`, `DATA_EVENT_RETENTION_DAYS`, `DATA_VERSIONS_RETENTION_DAYS`, `DATA_RETENTION_ACTOR` | `retention.ts`. |
 | `DATA_MIGRATIONS_DIR` | `migrate.ts` — the directory of the migrations, `./migrations` by default. |
 | `DATA_OWNER_PASSWORD`, `DATA_RUNTIME_PASSWORD`, `DATA_REGISTRY_PASSWORD`, `DATA_DELIVERY_PASSWORD`, `DATA_MAINTENANCE_PASSWORD` | `provision.ts` — the passwords of the roles. They are never printed. |
 

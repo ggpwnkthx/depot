@@ -19,11 +19,13 @@ export {
   type ListResult,
   type RecordRow,
   type RecordsServiceOptions,
+  type RollbackOptions,
   type Scope,
   type SubscriberLike,
   type TransactionOptions,
   type UnitOfWork,
   type UpdateOptions,
+  type VersionEntry,
   type WriteResult,
   AGGREGATE_FUNCTIONS,
   CURSOR_LIFETIME_MS,
@@ -41,6 +43,7 @@ export {
   MAX_SEARCH_LENGTH,
   MAX_SELECTED_FIELDS,
   MAX_SORT_FIELDS,
+  MAX_VERSIONS_PER_RECORD,
 } from './types'
 export { RecordsService } from './service'
 export {

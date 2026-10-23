@@ -84,6 +84,15 @@ roles are in [migrations.md](migrations.md).
 The tables are created by the reviewed migrations of the repository. The
 service never creates a table and never alters one while it runs.
 
+A collection may keep a history of its versions. The table of the
+versions is a mirror of the table of the collection, and the image of
+a version is written by the statement of the change itself: the image
+and the change commit together, and a change that the guard of the
+write refuses writes no image. The history is read with the policies
+of the deployment, exactly like a record, and the audit keeps its own
+rule: it holds the names of the fields that changed and never their
+values.
+
 ## The catalog of a workspace
 
 The **catalog** of a workspace is what it serves: the collections it

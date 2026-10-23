@@ -81,6 +81,9 @@ the transport, and the gateway turns them into a signed identity.
 | `create(key, body, { idempotencyKey })` | The creation of a record. It answers the receipt. |
 | `update(key, id, body, { etag })` | The update of a record. It answers the record and its new `ETag`. |
 | `remove(key, id, { etag })` | The deletion of a record. |
+| `versions(key, id)` | The history of the versions of a record. |
+| `version(key, id, version)` | One version of a record. |
+| `rollback(key, id, version, { etag })` | The rollback of a record to one of its versions. It answers the record and its new `ETag`. |
 | `aggregate(key, options)` | The groups of an aggregate. |
 | `audit({ limit, cursor })` | A page of the metadata of the audit log. |
 
@@ -110,6 +113,29 @@ const updated = await client.update(
 A `412 PRECONDITION_FAILED` means that the record changed since the
 validator was issued: read it again and apply the change on the new
 version. The details are in [the contract of v1](api.md).
+
+### The versions of a record
+
+The history of a record is read like the record itself, and the
+rollback is a write like the others: it needs the validator of the
+current state of the record.
+
+```ts
+const versions = await client.versions('articles', created.id)
+// versions[0].version, versions[0].operation, versions[0].supersededAt
+
+const previous = await client.version('articles', created.id, versions[0].version)
+const { record, etag } = await client.rollback(
+  'articles',
+  created.id,
+  versions[0].version,
+  { etag }
+)
+```
+
+The rollback is authorized by the policies of the deployment like any
+other update, and the version of the record never moves back: the
+record holds the version that follows the one it had.
 
 ### The traversal of the pages
 

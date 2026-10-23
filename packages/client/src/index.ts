@@ -149,6 +149,21 @@ export interface CollectionMetadata {
 }
 
 /** The receipt of a creation. */
+/**
+ * One version of the history of a record.
+ *
+ * The entry holds the version that the record had and what happened to
+ * it: the operation that superseded it, the names of the fields that
+ * the change touched, the instant of the change and its author.
+ */
+export interface VersionEntry {
+  version: number
+  operation: 'update' | 'delete'
+  changedFields: string[]
+  supersededAt: string
+  supersededBy: string
+}
+
 export interface Receipt {
   id: string
   version: number
@@ -378,6 +393,50 @@ export class DataClient<M extends CollectionMap = Record<string, RecordValue>> {
       method: 'DELETE',
       headers: { 'if-match': options.etag },
     })
+  }
+
+  /**
+   * The history of the versions of a record.
+   *
+   * The list holds the versions that are not the current one: the
+   * current version of a record is the record itself.
+   */
+  async versions<K extends keyof M & string>(key: K, id: string): Promise<VersionEntry[]> {
+    const answer = await this.#call<{ data: VersionEntry[] }>(`/items/${key}/${id}/versions`)
+    return answer.body.data
+  }
+
+  /**
+   * One version of a record.
+   *
+   * The version is read with the policies of the deployment: a version
+   * that the caller may not read answers `404`.
+   */
+  async version<K extends keyof M & string>(key: K, id: string, version: number): Promise<M[K]> {
+    const answer = await this.#call<{ data: M[K] }>(`/items/${key}/${id}/versions/${version}`)
+    return answer.body.data
+  }
+
+  /**
+   * Rolls a record back to one of its versions.
+   *
+   * The validator is the one of the current state of the record: the
+   * validator of the record, or the one of its tombstone when the
+   * record was deleted.
+   */
+  async rollback<K extends keyof M & string>(
+    key: K,
+    id: string,
+    version: number,
+    options: { etag: string }
+  ): Promise<{ record: M[K]; etag: string }> {
+    const answer = await this.#call<{ data: M[K] }>(`/items/${key}/${id}/rollback`, {
+      method: 'POST',
+      body: { version },
+      headers: { 'if-match': options.etag },
+    })
+    const etag = answer.headers.get('etag') ?? ''
+    return { record: answer.body.data, etag }
   }
 
   /** A page of the audit log. */

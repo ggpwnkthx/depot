@@ -10,7 +10,9 @@
  * run twice.
  */
 
+import { readFile } from 'node:fs/promises'
 import { Client } from 'pg'
+import { parseManifestBundle } from '../src/domains/schema/manifest'
 
 /** The batch size of the command. */
 const BATCH = 1000
@@ -21,6 +23,8 @@ const AUDIT_DAYS = Number(process.env.DATA_AUDIT_RETENTION_DAYS ?? '90')
 const RECEIPT_HOURS = Number(process.env.DATA_RECEIPT_RETENTION_HOURS ?? '24')
 /** The retention of the completed deliveries, in days. */
 const EVENT_DAYS = Number(process.env.DATA_EVENT_RETENTION_DAYS ?? '7')
+/** The retention of the versions of the records, in days. */
+const VERSIONS_DAYS = Number(process.env.DATA_VERSIONS_RETENTION_DAYS ?? '90')
 
 const url = process.env.DATA_MAINTENANCE_DATABASE_URL
 if (!url) {
@@ -32,6 +36,24 @@ const actor = process.env.DATA_RETENTION_ACTOR ?? 'operator'
 
 const client = new Client({ connectionString: url })
 await client.connect()
+
+/**
+ * The tables that hold the versions of the records.
+ *
+ * The tables are the ones that the manifest of the deployment declares:
+ * the retention of the history is the work of the deployment, and the
+ * command purges the tables it knows about.
+ */
+async function versionTables(): Promise<string[]> {
+  const file = process.env.DATA_SCHEMA_BUNDLE_FILE
+  if (!file) return []
+  const manifest = parseManifestBundle(await readFile(file, 'utf8'))
+  const tables: string[] = []
+  for (const collection of manifest.collections) {
+    if (collection.versions) tables.push(collection.versions.table)
+  }
+  return tables
+}
 
 /** Deletes a table in bounded batches and returns the number of the rows. */
 async function purge(table: string, where: string, parameters: unknown[]): Promise<number> {
@@ -71,6 +93,14 @@ try {
        and occurred_at < now() - interval '${EVENT_DAYS} days'`,
     []
   )
+  const versions: Record<string, number> = {}
+  for (const table of await versionTables()) {
+    versions[table] = await purge(
+      table,
+      `superseded_at < now() - interval '${VERSIONS_DAYS} days'`,
+      []
+    )
+  }
   console.log(
     JSON.stringify({
       level: 'info',
@@ -80,6 +110,7 @@ try {
       receipts,
       deliveries,
       events,
+      versions,
     })
   )
 } finally {

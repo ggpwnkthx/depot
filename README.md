@@ -4,7 +4,8 @@ A headless, permission aware data API for the applications behind
 [Shuttle](https://github.com/ggpwnkthx/shuttle).
 
 The backend owns the workspaces, the registered collections, the data
-policies, the records, the audit history and the committed events.
+policies, the records, the audit history, the history of the versions
+of the records and the committed events.
 [Hub](https://github.com/ggpwnkthx/hub) owns the identity, the
 tenants, the groups and the grants.
 

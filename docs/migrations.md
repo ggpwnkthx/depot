@@ -28,6 +28,7 @@ The directory of the migrations is `./migrations`, and
 | `0005_operator_policies.sql` | The policies of the owner of the schema and of the maintenance role. |
 | `0006_catalog.sql` | The catalog of the workspaces: the registry of the collections and the history of the published bundles. |
 | `0007_search.sql` | The index of the text search of the collections. |
+| `0008_record_versions.sql` | The history of the versions of the records: the table of the images of the example deployment, its isolation and its privileges. |
 
 A migration that was applied is never changed: the checksum of the file
 is compared with the checksum of the ledger, and a difference is a

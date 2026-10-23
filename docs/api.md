@@ -17,6 +17,9 @@ only with a major version of the client.
 | `/ws/{workspaceId}/v1/schema/{collection}` | `GET` | The metadata of one collection. |
 | `/ws/{workspaceId}/v1/items/{collection}` | `GET`, `POST` | A page of the records, and the creation of one. |
 | `/ws/{workspaceId}/v1/items/{collection}/{id}` | `GET`, `PATCH`, `DELETE` | One record, its update and its deletion. |
+| `/ws/{workspaceId}/v1/items/{collection}/{id}/versions` | `GET` | The history of the versions of one record. |
+| `/ws/{workspaceId}/v1/items/{collection}/{id}/versions/{version}` | `GET` | One version of one record. |
+| `/ws/{workspaceId}/v1/items/{collection}/{id}/rollback` | `POST` | The rollback of one record to one of its versions. |
 | `/ws/{workspaceId}/v1/aggregate/{collection}` | `GET` | The groups of an aggregate. |
 | `/ws/{workspaceId}/v1/audit` | `GET` | The metadata of the audit log of the workspace. |
 | `/ws/{workspaceId}/v1/openapi.json` | `GET` | The description of the API. |
@@ -215,6 +218,81 @@ body.
 
 An update always increments the version of the record, even when the
 values do not change. An empty `PATCH` is invalid.
+
+## The versions of a record
+
+A collection may keep a history of its versions. The manifest of the
+collection declares the table of the versions, and the deployment
+creates it in a reviewed migration.
+
+The history holds the versions that are **not** the current one: the
+current version of a record is the record itself. A record that was
+deleted holds its tombstone, the image of its last version with the
+operation `delete`.
+
+The list of the versions:
+
+```json
+{
+  "data": [
+    {
+      "version": 2,
+      "operation": "update",
+      "changedFields": ["title"],
+      "supersededAt": "2026-10-21T16:00:00.000Z",
+      "supersededBy": "11111111-1111-4111-8111-111111111111"
+    }
+  ]
+}
+```
+
+The versions are the latest first, and the answer holds at most two
+hundred of them: the latest ones are the ones that are answered, and
+the older ones are outside of the answer.
+
+The read of one version answers the canonical representation of that
+version, exactly like the read of a record, and it carries a strong
+`ETag`. The version is read with the policies of the deployment: the
+database evaluates the predicates of the read policies over the image
+of the version, exactly as it evaluates them over the record. A
+version that the caller may not read answers `404 NOT_FOUND`, it is
+absent from the list, and the fields that the policies do not grant are
+not in the answer.
+
+The rollback of a version:
+
+```json
+{ "version": 2 }
+```
+
+The body holds one property, the version, and it is a positive integer:
+another property, a version that is not an integer and a version that is
+not positive are `400 INVALID_REQUEST`.
+
+| Condition | The answer |
+| --- | --- |
+| No `If-Match` | `428 PRECONDITION_REQUIRED` |
+| A weak, a wildcard, a malformed or a multiple validator | `400 INVALID_PRECONDITION` |
+| The current state of the record is different | `412 PRECONDITION_FAILED` |
+| The version does not exist or is not readable | `404 NOT_FOUND` |
+| The record already holds that version | `409 CONFLICT` |
+| The policies of the deployment forbid the write | `403 FORBIDDEN` |
+
+The rollback is a write and not a privileged command: it restores the
+fields that changed between the version and the record, and the write
+is authorized by the same policies as any other update. The version of
+the record never moves back: the rollback is a change like any other,
+and the record holds the version that follows the one it had.
+
+The validator of a rollback is the one of the current state of the
+record: the validator of the record, or the validator of its tombstone
+when the record was deleted. A record that was deleted is restored
+with the image of the version, and its version follows the one of the
+tombstone.
+
+A collection that keeps no history answers `404 NOT_FOUND` on the three
+paths: the endpoint is absent for it, and it never answers with a
+successful placeholder.
 
 ## The creation and the idempotency
 

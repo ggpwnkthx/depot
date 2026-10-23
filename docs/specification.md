@@ -123,7 +123,7 @@ the policies MUST NOT depend on them.
 | Capability | The boundary of its integration |
 | --- | --- |
 | The files and the media | An asset domain; the bytes in an object storage, the metadata and the authorization here. |
-| The drafts, the publication, the revisions, the translations | A content domain that uses the same authorization and the same transactions. The audit is not a revision store. |
+| The drafts, the publication, the editorial revisions, the translations | A content domain that uses the same authorization and the same transactions. The audit is not a revision store. The history of the versions of a record is not one of them: it is a bounded capability of the backend (spec §11.6). |
 | The public realtime subscriptions | A subscription domain over the committed events, with the continuing authorization and the revocation. |
 | The webhooks, the schedules, the workflows | Delivery and job domains over the outbox events, with an explicit authority of a service principal. |
 | GraphQL | Another transport over the same services of queries and of commands. |
@@ -613,6 +613,8 @@ manifest defines:
 - the semantic labels and descriptions,
 - the fields of the search of the collection and the configuration of
   the text search of the database,
+- the table of the versions of the collection, when the collection keeps
+  a history (spec §11.6),
 - a version of the schema and the references of the policies.
 
 It holds no executable script of a client and no implementation of a
@@ -929,6 +931,9 @@ The endpoints of the release:
 | `POST` | `/items/{collection}` | The creation of one record. It requires an idempotency key. |
 | `PATCH` | `/items/{collection}/{id}` | The update of one record. It requires a current `If-Match`. |
 | `DELETE` | `/items/{collection}/{id}` | The deletion of one record. It requires a current `If-Match`. |
+| `GET` | `/items/{collection}/{id}/versions` | The history of the versions of one record, for the collections that keep one. |
+| `GET` | `/items/{collection}/{id}/versions/{version}` | One version of one record, read with the policies of the deployment. |
+| `POST` | `/items/{collection}/{id}/rollback` | The rollback of one record to one of its versions. It requires a current `If-Match`. |
 | `GET` | `/aggregate/{collection}` | The groups of an aggregate. |
 | `GET` | `/audit` | The metadata of the audit, for the holders of `data.audit.read`. |
 | `GET` | `/openapi.json` | The versioned description of the API. |
@@ -1170,6 +1175,67 @@ deleted automatically. The limits of the capacity MUST refuse the new
 work before a transaction commits an event that cannot be kept, and the
 backlog is observable.
 
+### 11.6 The history of the versions of the records
+
+A collection MAY keep a history of its versions. The manifest of the
+collection declares the table of the versions, and the table is created
+by a reviewed migration of the deployment: the role of the api never
+creates a table and never alters one.
+
+The table of the versions is a **mirror** of the table of the
+collection: it holds the same columns, with the same names and the
+same types, and the columns of the history:
+
+| Column | What it holds |
+| --- | --- |
+| `operation` | The change that superseded the version: `update` or `delete`. |
+| `changed_fields` | The names of the fields that the change touched. |
+| `restored_from` | The version that the change restored, when it was a rollback. |
+| `superseded_at`, `superseded_by` | The instant of the change and its principal. |
+
+The rules:
+
+- The table holds the versions that are **not** the current one: the
+  current version of a record is the row of the collection itself. A
+  record that was deleted holds its tombstone, the image of its last
+  version with the operation `delete`.
+- The image of a version is written by the **statement of the change
+  itself**: the image and the change commit together or not at all, and
+  a change that the guard of the write refuses writes no image.
+- The image is the row before the change, and it carries the version it
+  had. The version of a record never moves back: a rollback is a
+  change like any other, and the record holds the version that follows
+  the one it had.
+- The history is read with the **policies of the deployment**: the
+  database evaluates the predicates of the read policies over the image
+  of every version, exactly as it evaluates them over the record. A
+  version that the caller may not read answers `404 NOT_FOUND`, and it
+  is absent from the list of the versions.
+- The fields that the policies do not grant are not in the answer of a
+  version, and the answer of a version is the canonical representation
+  of a record: it carries `id` and `version`, and it carries a
+  validator.
+- A rollback is a **write**, and not a privileged command: the write
+  that restores a version is authorized by the same policies as any
+  other update, and a version that the policies forbid to write answers
+  `403 FORBIDDEN`. A rollback that the policies accept but that the
+  guard of the write refuses is refused.
+- A rollback requires a current `If-Match`: the validator of the
+  record, or the validator of its tombstone when the record was
+  deleted. A stale validator is `412 PRECONDITION_FAILED`.
+- A record that was deleted is restored with the image of the version,
+  and its version follows the one of its tombstone. The identity of the
+  record and the instant of its creation are the ones it had.
+- The history of a collection is bounded by the retention of the
+  history: the images that are too old are removed by the maintenance
+  role. The answer of the list of the versions is bounded as well.
+
+The history of the versions is not the audit: the audit holds the
+identifiers of a mutation and the names of the fields that changed,
+never the values, and it is never a store of the images. The tables
+are different, the retention is different, and the audit may not be
+edited by the role of the api.
+
 ## 12. The typed client
 
 The repository publishes a client package that:
@@ -1342,6 +1408,7 @@ is rolled back and discarded before it can return to the pool.
 | The data | The default |
 | --- | --- |
 | The business records | Owned by the application. No automatic purge. |
+| The images of the versions of the records | 90 days, adjustable by the operator. The tables are the ones that the manifest declares. |
 | The audit entries | 90 days, adjustable by the operator. |
 | The receipts of the creations | At least 24 hours. |
 | The metadata of the completed events and of the deliveries | At least seven days. |
@@ -1354,8 +1421,8 @@ platform.
 
 The backups hold the business records, the workspaces, the versions of
 the manifests and of the bundle of the policies, the state of the
-audit, of the outbox and of the deliveries, and the history of the
-migrations. The secrets are backed up and rotated by the secret
+audit, of the outbox and of the deliveries, the images of the versions
+of the records, and the history of the migrations. The secrets are backed up and rotated by the secret
 management of the deployment. A rehearsal of the restore MUST verify
 the isolation of the tenants and the safe resumption of the idempotent
 deliveries before the production.
@@ -1412,6 +1479,7 @@ appropriate automated check.
 | The compatibility of Hub | The real implementation of the context returns the complete set of the keys of the user and of the groups, and it preserves the existing contract of the decisions. |
 | The integration with PostgreSQL | The row level security, the composite constraints of the references, the refusal of a missing context, the reuse of the pool, the concurrent checks of the versions, the drift of the migrations and the restrictions of the roles. |
 | The failure of a transaction | A failure is injected at every stage of a mutation: the record, the audit, the event and the receipt are all committed, or all absent. |
+| The history of the versions | The image of a version is written by the statement of the change, a change that the guard refuses writes no image, a version that the caller may not read is not found, and a rollback is authorized by the policies of the deployment. |
 | The integration of the subscribers | The claims of several workers, the expiry of the leases, the duplicated delivery, the exhaustion of the retries, the missing handlers, the revocation of the service principal and the bounds of the depth of the cause. |
 | The architecture | The imports that are allowed, the public entry points, the absence of a cycle and the construction of the private adapters. |
 | The operations and the load | The deadlines cancel the SQL, the resources stay bounded, the failures of the dependencies fail closed, the drain completes, and the restore is rehearsed. |
@@ -1436,21 +1504,24 @@ The adversarial cases are mandatory:
    atomically.
 8. The concurrent updates with one ETag yield one successful change of
    version and one refusal of a precondition.
-9. A `POST` that is retried after a committed but lost answer creates
-   one record and answers its original receipt.
-10. The reuse of a key of a creation with another body cannot create
+9. A version that the policies of the deployment hide is not found in
+   the history, and a rollback that they forbid is refused: the history
+   is not a path that bypasses the authorization.
+10. A `POST` that is retried after a committed but lost answer creates
+    one record and answers its original receipt.
+11. The reuse of a key of a creation with another body cannot create
     another record inside the window of the retention.
-11. An expired or a malformed context of Hub, the wrong identifiers of
+12. An expired or a malformed context of Hub, the wrong identifiers of
     the context and the incomplete sets of capabilities never allow an
     operation of the data.
-12. A connection of a pool never keeps the scope of a previous tenant,
+13. A connection of a pool never keeps the scope of a previous tenant,
     workspace or principal.
-13. The credentials of the runtime cannot disable the row level
+14. The credentials of the runtime cannot disable the row level
     security, alter the schema, edit the history of the audit, or
     query the tables of Hub.
-14. A subscriber cannot turn the attribution of an actor into the
+15. A subscriber cannot turn the attribution of an actor into the
     current authorization.
-15. The functionality of the backend and all the tests of the API run
+16. The functionality of the backend and all the tests of the API run
     without a process and without a package of Studio.
 
 ## 17. The decisions fixed by this contract

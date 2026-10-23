@@ -79,6 +79,38 @@ const server = Bun.serve({
         { location: '/ws/33333333-3333-4333-8333-333333333333/v1/items/articles/1' }
       )
     }
+    if (url.pathname.endsWith('/v1/items/articles/44444444-4444-4444-8444-444444444444/versions')) {
+      return json({
+        data: [
+          {
+            version: 1,
+            operation: 'update',
+            changedFields: ['title'],
+            supersededAt: '2026-01-01T00:00:00.000Z',
+            supersededBy: '11111111-1111-4111-8111-111111111111',
+          },
+        ],
+      })
+    }
+    if (
+      url.pathname.endsWith('/v1/items/articles/44444444-4444-4444-8444-444444444444/versions/1')
+    ) {
+      return json(
+        { data: { id: '44444444-4444-4444-8444-444444444444', version: 1, title: 'Launch' } },
+        200,
+        { etag: '"sha256:2222222222222222222222222222222222222222222222222222222222222222"' }
+      )
+    }
+    if (
+      url.pathname.endsWith('/v1/items/articles/44444444-4444-4444-8444-444444444444/rollback') &&
+      request.method === 'POST'
+    ) {
+      return json(
+        { data: { id: '44444444-4444-4444-8444-444444444444', version: 3, title: 'Launch' } },
+        200,
+        { etag: '"sha256:3333333333333333333333333333333333333333333333333333333333333333"' }
+      )
+    }
     if (url.pathname.includes('/v1/items/articles/') && request.method === 'GET') {
       return json(
         { data: { id: '44444444-4444-4444-8444-444444444444', version: 1, title: 'Launch' } },
@@ -202,6 +234,35 @@ describe('the client of the api', () => {
     const { record, etag } = await client.getWithValidator('articles', '1')
     expect(record.title).toBe('Launch')
     expect(etag).toContain('sha256:')
+  })
+
+  test('it reads the history of the versions of a record', async () => {
+    const versions = await client.versions('articles', '44444444-4444-4444-8444-444444444444')
+    expect(versions).toHaveLength(1)
+    expect(versions[0]?.version).toBe(1)
+    expect(versions[0]?.operation).toBe('update')
+    const call = calls.at(-1)!
+    expect(call.path).toBe(
+      '/ws/33333333-3333-4333-8333-333333333333/v1/items/articles/44444444-4444-4444-8444-444444444444/versions'
+    )
+  })
+
+  test('it reads one version of a record', async () => {
+    const version = await client.version('articles', '44444444-4444-4444-8444-444444444444', 1)
+    expect(version.version).toBe(1)
+    expect(calls.at(-1)!.path).toContain('/versions/1')
+  })
+
+  test('it rolls a record back to one of its versions', async () => {
+    const result = await client.rollback('articles', '44444444-4444-4444-8444-444444444444', 1, {
+      etag: '"sha256:1111111111111111111111111111111111111111111111111111111111111111"',
+    })
+    expect(result.record.version).toBe(3)
+    expect(result.etag).toContain('sha256:')
+    const call = calls.at(-1)!
+    expect(call.method).toBe('POST')
+    expect(call.headers['if-match']).toContain('sha256:')
+    expect(call.body).toEqual({ version: 1 })
   })
 
   test('it updates with the validator of the record', async () => {
