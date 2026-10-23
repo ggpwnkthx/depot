@@ -198,6 +198,12 @@ jobs:
           docker network create depot-ci
           docker run -d --name depot-pg --network depot-ci -e POSTGRES_USER=depot -e POSTGRES_PASSWORD=depot -e POSTGRES_DB=postgres postgres:18-alpine
           until docker exec depot-pg pg_isready -U depot; do sleep 1; done
+          # The image of PostgreSQL answers the probe while it initialises
+          # its cluster, and it restarts the server when it is done: the
+          # readiness of the server is not the readiness of the database.
+          # A query is what proves that the server that answers is the
+          # one that stays.
+          until docker exec depot-pg psql -U depot -d postgres -c 'select 1' > /dev/null 2>&1; do sleep 1; done
           docker run --rm --network depot-ci -e DATA_ADMIN_DATABASE_URL=postgres://depot:depot@depot-pg:5432/postgres -e DATA_OWNER_DATABASE_URL=postgres://data_owner:ci-owner-password-000001@depot-pg:5432/depot -e DATA_OWNER_PASSWORD=ci-owner-password-000001 -e DATA_RUNTIME_PASSWORD=ci-runtime-password-00001 -e DATA_REGISTRY_PASSWORD=ci-registry-password-0001 -e DATA_DELIVERY_PASSWORD=ci-delivery-password-0001 -e DATA_MAINTENANCE_PASSWORD=ci-maintenance-password-001 depot:test sh -c "bun run scripts/provision.ts && bun run scripts/migrate.ts"
           docker run -d --name depot-api --network depot-ci \
             -e DATA_ENVIRONMENT=development \
