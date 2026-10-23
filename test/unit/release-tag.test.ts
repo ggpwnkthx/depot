@@ -208,7 +208,7 @@ describe('the tag of the release, on a runner', () => {
     const root = mkdtempSync(join(tmpdir(), 'depot-tag-'))
     const previous = process.cwd()
     try {
-      const { project, remote } = checkout(root)
+      const { project } = checkout(root)
       // The tag of the version exists already: the version did not
       // increase and there is nothing to cut.
       const identity = ['-c', 'user.name=Test', '-c', 'user.email=test@example.test']
