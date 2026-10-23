@@ -603,3 +603,34 @@ the image of every row of the table, and the service would not know
 which rows it wrote: the history of a deployment would then depend on
 the paths that reach the database. The service writes what it changes,
 and it knows what it changed.
+
+## 32. The development machine and the continuous integration use PostgreSQL 18, and a deployment may run 15 or later
+
+The development machine, the integration tests, the compatibility
+harness and the continuous integration run PostgreSQL 18. The service
+itself does not require a major: a deployment may run PostgreSQL 15 or
+later, and the scripts of the deployment check the version of their
+client against the version of their server.
+
+**Why.** The suites prove the semantics of a version, and a suite that
+runs against another major proves another version. The major that the
+suites run against is the newest one that a deployment may meet, and
+the tests that prove the semantics of the version are the ones that
+catch a difference between the versions before a deployment meets it.
+
+**The cost.** The machine of a developer needs the binaries of the
+version 18, and the continuous integration installs them: the runner
+does not have them, and the image of the database of the stack of the
+development machine is the one of the version 18 as well. The script
+that starts the server of the tests warns when the machine has another
+major, and it refuses a data directory of another major: a server of
+the version 18 does not start on the files of the version 15, and the
+refusal of the server is not the message that a developer needs.
+
+**The alternative that was refused.** The requirement of the version 18
+in the contract of the service was refused: the managed PostgreSQL of
+the operators lags the newest major by months, and a requirement of
+the version 18 in the contract of the version `1.0.0` would close the
+door of the deployments that use a managed database. The requirement
+belongs to the machine of the developers and not to the contract of the
+deployments.

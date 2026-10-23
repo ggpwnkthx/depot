@@ -39,7 +39,7 @@ The knobs are the environment:
 | The memory | 31 gibibytes |
 | The kernel | Linux 7.2.9 |
 | The runtime | Bun 1.4.3 |
-| The database | PostgreSQL 15.19, on the same machine, `fsync=off` and `synchronous_commit=off` |
+| The database | PostgreSQL 18.6, on the same machine, `fsync=off` and `synchronous_commit=off` |
 | The deployment | one api process, `DATA_DB_POOL_MAX=20`, the registry and the delivery pools of 5 |
 | The context cache | `DATA_CONTEXT_CACHE_TTL_MS=0`: every request asks Hub |
 | The catalog | the workspace registered nothing: the catalog of the deployment is read with the registry of the workspaces, in one statement |
@@ -56,14 +56,14 @@ guarded write path of the version `1.0.0`.
 
 | Scenario | The requests | The rate | p50 | p95 | p99 | The failures |
 | --- | --- | --- | --- | --- | --- | --- |
-| Read heavy, a page of 50 | 16589 | 1659/s | 9.4 ms | 11.8 ms | 13.4 ms | 0 |
-| Mixed, half of the creations | 21127 | 2113/s | 7.4 ms | 9.8 ms | 11.2 ms | 0 |
-| The concurrent updates of one record | 6218 | 622/s | 25.7 ms | 30.2 ms | 33.2 ms | 0 (389 successes, 5829 precondition failures) |
-| Hub is down | 62091 | 6209/s | 2.5 ms | 3.3 ms | 4.8 ms | 62091 answers 503 |
+| Read heavy, a page of 50 | 15102 | 1510/s | 10.4 ms | 13.4 ms | 15.5 ms | 0 |
+| Mixed, half of the creations | 21491 | 2149/s | 7.3 ms | 9.4 ms | 10.7 ms | 0 |
+| The concurrent updates of one record | 6011 | 601/s | 26.6 ms | 30.9 ms | 33.8 ms | 0 (379 successes, 5632 precondition failures) |
+| Hub is down | 62617 | 6262/s | 2.5 ms | 3.2 ms | 4.6 ms | 62617 answers 503 |
 
 What the numbers say:
 
-- **The read path holds.** A page of fifty records is read in nine
+- **The read path holds.** A page of fifty records is read in ten
   milliseconds at the fiftieth percentile, with the context of Hub asked
   for every time. Hub is the dependency of every request, and it is not
   on the critical path of the read of the records: the context is
@@ -83,16 +83,17 @@ What the numbers say:
   cannot prove. The rate of the refusals is the rate of the failures of
   the dependency.
 
-**The numbers of the version 0.2.0** were 991/s, 1251/s, 313/s and
-4280/s, with a fiftieth percentile of 15.8 ms, 11.6 ms, 50.8 ms and
-3.6 ms. The two measurements are not comparable: they are two runs on
-a shared machine, and the numbers of a development machine are the
-numbers of that machine and of that moment. The report is a
-measurement, and not a promise.
+**The numbers of the version 0.2.0** were measured on PostgreSQL
+15.19, and they were 991/s, 1251/s, 313/s and 4280/s, with a fiftieth
+percentile of 15.8 ms, 11.6 ms, 50.8 ms and 3.6 ms. The two
+measurements are not comparable: they are two runs on a shared machine,
+and they are two versions of the database as well. The numbers of a
+development machine are the numbers of that machine and of that moment.
+The report is a measurement, and not a promise.
 
 **The run of the table above varies.** Three consecutive runs of the
-command on the machine of the measurement answered 967/s, 985/s and
-1043/s for the read heavy scenario: the machine is shared, and the
+command on the machine of the measurement answered 1510/s, 1571/s and
+1371/s for the read heavy scenario: the machine is shared, and the
 spread between two runs is of the order of a fifth. A number of this
 report is the number of one run, and a deployment that compares two of
 them compares two moments of a shared machine and not two versions of
@@ -187,9 +188,9 @@ The deployment of this repository is the reference, and it declares:
 | The availability | `DATA_CONTEXT_CACHE_TTL_MS=0`: the revocation of a grant is visible in the next request, and a Hub that is down answers `503` to every call |
 
 The objectives are the ones of the measurement above, with a margin of
-a half: the measurement reached 1 659 requests per second on the read
-heavy scenario and 2 113 on the mixed one, and the ninety fifth
-percentile was 11.8 and 9.8 milliseconds. A deployment that declares
+a half: the measurement reached 1 510 requests per second on the read
+heavy scenario and 2 149 on the mixed one, and the ninety fifth
+percentile was 13.4 and 9.4 milliseconds. A deployment that declares
 more than its machine holds is a deployment that answers `503` when it
 is full, and the service is measured with the command of the
 repository, not with a promise.

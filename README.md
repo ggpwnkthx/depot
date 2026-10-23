@@ -14,8 +14,10 @@ depend on a studio, and it does not know that a studio exists: a studio
 is one of its clients, like any other client.
 
 - **Runtime:** TypeScript on Bun 1.4.3, Hono at the HTTP boundary.
-- **Storage:** PostgreSQL 15 or later, with the row level security of
-  the database as the isolation of the tenants and of the workspaces.
+- **Storage:** PostgreSQL 15 or later in a deployment, with the row level
+  security of the database as the isolation of the tenants and of the
+  workspaces. The development machine, the tests and the continuous
+  integration use PostgreSQL 18.
 
 ```
 clients ──▶ Shuttle ──▶ data backend ──▶ PostgreSQL

@@ -10,12 +10,17 @@ real migrations.
 | Tool | Version |
 | --- | --- |
 | [Bun](https://bun.sh) | 1.4.3 or later |
-| PostgreSQL | 15 or later, with the binaries of the server in the path |
+| PostgreSQL | 18, with the binaries of the server in the path |
 | Docker | only for the stack of the development machine |
 
 The integration tests start a PostgreSQL server of their own, in
 `.pg/test-data`, so a local server is not needed for them. The
 compatibility harness starts one in a temporary directory.
+
+The version 18 is the version that the suites prove. A deployment may
+run PostgreSQL 15 or later, and the requirement of a deployment is in
+[the readme](../README.md); it is not the version of the machine of a
+developer.
 
 ## The steps
 

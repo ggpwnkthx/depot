@@ -133,6 +133,46 @@ policies of the tables and names the role that bypasses them, and the
 command of the restore gives the ownership of the restored tables back
 to the owner of the schema.
 
+### The rehearsal of the release candidate of the version 1.0 on PostgreSQL 18
+
+The rehearsal was run again on the development machine of the release,
+on the PostgreSQL 18.6 of the machine — the version that the
+development machine, the tests and the continuous integration use — with
+the migrations of the repository and with one article in one workspace.
+The command is the same one, and the client tools of the rehearsal are
+the ones of the server: a client that is older than the server refuses
+the dump, and the rehearsal would fail on the tools of the machine and
+not on the service.
+
+```
+the server of the rehearsal is started
+the roles and the database are provisioned
+the schema is applied
+the workspace and its record are written
+the backup is written
+the backup is written to /tmp/depot-rehearsal-OBC7rg/backup/depot-20261023T141337Z.dump
+the backup is done
+the restore is rehearsed
+the database of the rehearsal is created
+the backup is restored
+the ownership of the restored tables goes back to the owner of the schema
+the isolation of the tenants is checked
+the restored rows are 0
+the rows of a scope that does not exist are 0
+the restored images of the versions are 0
+the images of a scope that does not exist are 0
+the deliveries of the restored state are counted
+0
+the rehearsal is done
+```
+
+**The commands of the backup and of the restore name the versions.**
+The client of the two commands must not be older than the server, and
+the two commands refuse it with a message that names the version of the
+client and the version of the server. A deployment may run PostgreSQL
+15 or later: the requirement is not on the major of the server, it is
+on the client that talks to it.
+
 ## The order of a restore
 
 1. stop the api and the workers: a restore writes the tables of the

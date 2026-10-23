@@ -107,6 +107,13 @@ reachable, and they do not change the contract of the API.
   built from those flags. The service does not evaluate a predicate of
   a policy in memory any more, and the validator of a record is the
   same whether the record was read or written.
+- **The development machine, the tests and the continuous integration
+  use PostgreSQL 18.** The suites prove the semantics of a version, and
+  they now prove the semantics of the newest major that a deployment
+  may meet. The service does not require a major: a deployment may run
+  PostgreSQL 15 or later, and the commands of the backup and of the
+  restore refuse a client that is older than their server with a
+  message that names both versions.
 
 ### Added
 

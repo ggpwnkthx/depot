@@ -35,7 +35,9 @@ matrix of the imports that the domains may use is there.
 
 The integration tests and the harness start a PostgreSQL server of
 their own: the isolation, the locking and the claims of the workers are
-the behaviour of a server and not of an embedded engine.
+the behaviour of a server and not of an embedded engine. The server is
+the version 18, the version that the suites prove, and the script that
+starts it warns when the machine has another major.
 
 Two of the suites are not ordinary tests:
 

@@ -67,8 +67,10 @@ of Hub is fetched outside of the transaction of the business data.
 
 ## The storage
 
-PostgreSQL 15 or later, with the row level security of the database as
-the isolation of the tenants and of the workspaces.
+PostgreSQL 15 or later in a deployment, with the row level security of
+the database as the isolation of the tenants and of the workspaces.
+The development machine, the tests and the continuous integration use
+PostgreSQL 18.
 
 Every business table carries `tenant_id` and `workspace_id`, and the
 scope is set on the transaction with `set_config(…, true)`. A pooled
