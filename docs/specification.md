@@ -51,8 +51,8 @@ of the hub and the revisions that are tested against them.
 
 | Project | Repository | Revision |
 | --- | --- | --- |
-| Shuttle | https://github.com/ggpwnkthx/shuttle.git | `76b3ff8c34019f1cdb32d7e8c135e785ef3da725` |
-| Hub | https://github.com/ggpwnkthx/hub.git | `21bbc7f3e44786f6ca4a27a0223fecac3004ff25` |
+| Shuttle | https://github.com/ggpwnkthx/shuttle.git | `0e09a420f8d5f7f3e2eea63512f808ce4ae215e0` |
+| Hub | https://github.com/ggpwnkthx/hub.git | `ef69e2fdd683572a68585c9234498e1cec3850f9` |
 
 <!-- compatibility-baseline:end -->
 

@@ -1,6 +1,6 @@
 {
   "name": "@data-backend/client",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "type": "module",
   "description": "The typed client of the headless data backend.",
   "license": "MIT",

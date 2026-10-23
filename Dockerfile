@@ -7,7 +7,7 @@
 # image of a release has to be the image that was built and scanned.
 ARG BUN_VERSION=1.4.3
 ARG BUN_DIGEST=sha256:629e17411f1f129dbec3af78d5af9c9f2a937435c80349437206c6b0b7422373
-ARG VERSION=0.3.0
+ARG VERSION=0.3.1
 ARG REVISION=unknown
 
 # ---------------------------------------------------------------- dependencies

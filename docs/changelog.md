@@ -17,6 +17,39 @@ before the version `1.0.0`: the gates of the repository are green, and
 the two gates that are outside of it are listed in
 [the readiness of the version 1.0.0](release-readiness.md).
 
+## 0.3.1 — the current platform and the fixes of the release (2026-10-23)
+
+The baseline of the integration moves to the pair that the platform
+publishes: the release `v1.3.0` of the gateway and the release `v1.0.1`
+of Hub. The release also carries the fixes of the workflow of the
+release, the ones that the release of the version `0.3.0` refused.
+
+The contract of the API does not change: the path of every route is
+still `v1`, the identity of the gateway is still the version `v5`, and
+the access context of Hub is still the version `1`. Nothing is added
+and nothing is removed.
+
+### Changed
+
+- **The baseline of the integration is the release `v1.3.0` of the
+  gateway and the release `v1.0.1` of Hub.** The manifest
+  `compatibility.json` holds the revisions that the compatibility
+  harness proves: the gateway is `v1.3.0` and the hub is `v1.0.1`.
+  It is the pair that the platform publishes together: the manifest of
+  Hub `v1.0.1` pins the gateway `v1.3.0`. The contract of the API does
+  not change: the identity of the gateway is still the version `v5`,
+  the access context of Hub is still the version `1`, and the
+  acceptance scenario through the gateway passes with the two releases.
+  The release `v1.3.0` of the gateway extends its contracts and never
+  changes them: it gives the deployment a control plane of its own and
+  lets the route table live in the shared state, and a deployment
+  written against the `v1.2.0` keeps working without a change.
+- **The fixture of the identity is the one of the revision of the
+  baseline.** The fixture of the signature of the identity is produced
+  by the pinned gateway itself, and the pinned gateway is now the
+  release `v1.3.0`: the bytes of the fixture come from the code of
+  that revision.
+
 ### Fixed
 
 - **The tag of the release is cut after the continuous integration is

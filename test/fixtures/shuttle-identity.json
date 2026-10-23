@@ -1,10 +1,10 @@
 {
   "comment": "The fixtures are produced by the pinned gateway, with scripts/generate-fixtures.ts.",
-  "shuttleCommit": "76b3ff8c34019f1cdb32d7e8c135e785ef3da725",
+  "shuttleCommit": "0e09a420f8d5f7f3e2eea63512f808ce4ae215e0",
   "current": {
     "version": "v5",
     "algorithm": "ES256",
-    "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE6RT8TbJp0ZaBmV/O+vgb5JzyvppI\n1Clga/tA0IBVZwGw4FHSgbXvsdpSH5PIFb/5Mwcq8MX4HPseR0XZXya/9w==\n-----END PUBLIC KEY-----\n",
+    "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERufaSiFQs27gWAmjpRlrbfBNbZyc\n/+V1zV+vTI+TLxt+An2TxF4j+5SMlF1Cbu6EY/vHjf5O/OJBYtcbO/mt6w==\n-----END PUBLIC KEY-----\n",
     "cases": [
       {
         "name": "a read of the list of the articles",
@@ -21,7 +21,7 @@
           "host": "api.example.test"
         },
         "canonicalPayload": "{\"v\":\"v5\",\"method\":\"GET\",\"path\":\"/ws/22222222-2222-4222-8222-222222222222/v1/items/articles\",\"query\":\"\",\"host\":\"api.example.test\",\"subject\":\"11111111-1111-4111-8111-111111111111\",\"workspaceId\":\"22222222-2222-4222-8222-222222222222\",\"email\":\"alice@example.test\",\"roles\":[\"editor\",\"member\"]}",
-        "signature": "v5=eyJhbGciOiJFUzI1NiIsInR5cCI6InNodXR0bGUtaWRlbnRpdHkifQ..tzfxFyLzhIGgOqBgOktgDxJsMnAI0nVbzYqWYuwpsM38hCcGUe5ti_jCiMvVDTf_6AUwRoafVofyDlGhDC9tTQ"
+        "signature": "v5=eyJhbGciOiJFUzI1NiIsInR5cCI6InNodXR0bGUtaWRlbnRpdHkifQ..W1PG6wbIIimvVGzirIRyzXhh8X86f5-syi--Ul3QFBigHf2RH7-1IBLPjPn69dxiygx63jdgWAkA3eXDZTZVYA"
       },
       {
         "name": "a write with a filter and a sort",
@@ -37,7 +37,7 @@
           "host": "api.example.test"
         },
         "canonicalPayload": "{\"v\":\"v5\",\"method\":\"POST\",\"path\":\"/ws/22222222-2222-4222-8222-222222222222/v1/items/articles\",\"query\":\"?limit=10&sort=-title\",\"host\":\"api.example.test\",\"subject\":\"11111111-1111-4111-8111-111111111111\",\"workspaceId\":\"22222222-2222-4222-8222-222222222222\",\"email\":\"\",\"roles\":[\"editor\"]}",
-        "signature": "v5=eyJhbGciOiJFUzI1NiIsInR5cCI6InNodXR0bGUtaWRlbnRpdHkifQ..x8fEWOXQXIBmxQIRgkFiRchPJqz5yoEiL2dzFM6VA5VarvnpLFsAJI54eioR-tuilcOaI5dlm8SRiEkgYZJkig"
+        "signature": "v5=eyJhbGciOiJFUzI1NiIsInR5cCI6InNodXR0bGUtaWRlbnRpdHkifQ..EpkYma36MouPRdpuR50SnoniyeSs5IunFReQk0TQPAcsdac8H9x_kkNOLIXpQJzTyF1RuCdDDrvfyEiUynQkzg"
       },
       {
         "name": "a request with an upper case host and an email",
@@ -54,7 +54,7 @@
           "host": "api.example.test:8443"
         },
         "canonicalPayload": "{\"v\":\"v5\",\"method\":\"DELETE\",\"path\":\"/ws/44444444-4444-4444-8444-444444444444/v1/items/articles/55555555-5555-4555-8555-555555555555\",\"query\":\"\",\"host\":\"api.example.test:8443\",\"subject\":\"33333333-3333-4333-8333-333333333333\",\"workspaceId\":\"44444444-4444-4444-8444-444444444444\",\"email\":\"bob@example.test\",\"roles\":[]}",
-        "signature": "v5=eyJhbGciOiJFUzI1NiIsInR5cCI6InNodXR0bGUtaWRlbnRpdHkifQ..Ah66V8AzoYl7UyOZJDz1ClYmhKHPIUBaMdLdYzeDNdfDfHbW8HkY4wax2SnZXllXErCEYl_sSxeOXFLMw5oG_g"
+        "signature": "v5=eyJhbGciOiJFUzI1NiIsInR5cCI6InNodXR0bGUtaWRlbnRpdHkifQ..obAi2E_YtMqv_OeKZujp7PtAEUcVh0bwXzmkwvB_7bFU3_u1t30BQfrFD4XnN4-mYkE29P-O1MeLYj-GT5W7yQ"
       }
     ]
   },

@@ -20,11 +20,11 @@ the revisions that are tested against them.
   "repositories": {
     "shuttle": {
       "url": "https://github.com/ggpwnkthx/shuttle.git",
-      "commit": "76b3ff8c34019f1cdb32d7e8c135e785ef3da725"
+      "commit": "0e09a420f8d5f7f3e2eea63512f808ce4ae215e0"
     },
     "hub": {
       "url": "https://github.com/ggpwnkthx/hub.git",
-      "commit": "21bbc7f3e44786f6ca4a27a0223fecac3004ff25"
+      "commit": "ef69e2fdd683572a68585c9234498e1cec3850f9"
     }
   }
 }
@@ -35,9 +35,9 @@ the revisions that are tested against them.
 The revisions are full commits: they are immutable, and a change of
 the baseline is a change of the manifest and a new run of the harness.
 
-The baseline is the release `v1.2.0` of the gateway and the release
-`v1.0.0` of Hub. The two are the pair that the platform publishes
-together: the manifest of Hub `v1.0.0` pins the gateway `v1.2.0`, and
+The baseline is the release `v1.3.0` of the gateway and the release
+`v1.0.1` of Hub. The two are the pair that the platform publishes
+together: the manifest of Hub `v1.0.1` pins the gateway `v1.3.0`, and
 the harness proves the depot against that pair.
 
 The baseline is written in the [specification](specification.md) §1.1,

@@ -66,7 +66,7 @@ The image of the service is built from the `Dockerfile` of the
 repository:
 
 ```bash
-docker build --tag depot:0.3.0 .
+docker build --tag depot:0.3.1 .
 ```
 
 It holds the runtime, the source, the manifests, the migrations and the
