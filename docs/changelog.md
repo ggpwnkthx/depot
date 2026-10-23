@@ -12,40 +12,34 @@ repository](https://github.com/ggpwnkthx/depot/releases).
 
 ## Unreleased
 
-The changes that are not published yet. They are the first step of the
-version `1.0.0`: they close the open finding of the security review
-about the predicate of a write, they make the codes of the contract
-reachable, and they do not change the contract of the API.
+The changes that are not published yet. They are the step that is left
+before the version `1.0.0`: the gates of the repository are green, and
+the two gates that are outside of it are listed in
+[the readiness of the version 1.0.0](release-readiness.md).
 
-### Fixed
+## 0.3.0 — the history of a record and the current platform (2026-10-23)
 
-- **The failures of the database are the codes of the contract.** A
-  lock that was not granted in time, a constraint that was violated
-  and a statement that ran out of its budget were answered with a
-  `500 INTERNAL_ERROR`. They are answered with the codes that the
-  contract publishes: `409 CONFLICT`, `422 VALIDATION_FAILED`,
-  `504 DEADLINE_EXCEEDED` and `503 DATABASE_UNAVAILABLE`. The
-  translation of the SQLSTATE of the server is one table, in the
-  platform layer.
-- **A refusal of a cursor is not an internal error.** A cursor that
-  was tampered with answered `500 INTERNAL_ERROR`; it answers the
-  `400 INVALID_CURSOR` of the contract, and a cursor that expired
-  answers `409 CURSOR_STALE`.
-- **A statement that failed does not take the connection of the pool
-  with it.** A failing statement marked the transaction as broken, and
-  a broken connection was neither returned to the pool nor destroyed:
-  the connection was lost. Twenty failing writes exhausted the pool
-  of the api and every request of the deployment answered `503`
-  afterwards. A connection that is broken is destroyed, and a statement
-  that fails does not break a connection.
-- **The budget of the size of an answer bounds the memory.** The four
-  mebibytes of the contract were checked once the answer was built.
-  The budget is spent as the answer is built, and an answer that is
-  refused is never built.
-- **The expansion of a relation is read with one statement.** The
-  expansion was read with one statement per root row of the page, and
-  it was read in one piece. It is read in chunks whose size follows
-  the size of the rows, and the relation of a page is read at once.
+A collection may keep the history of the versions of its records, and a
+record may be rolled back to one of them with the policies of the
+deployment. The predicate of a write is evaluated by the database
+itself, and the row that the write produces is the row that the
+policies are read over. The baseline of the integration is the pair
+that the platform publishes: the release `v1.2.0` of the gateway and
+the release `v1.0.0` of Hub.
+
+The contract of the API does not change: the path of every route is
+still `v1`, the identity of the gateway is still the version `v5`, and
+the access context of Hub is still the version `1`. The changes that
+are added are added under the path that exists.
+
+**This release changes the baseline of a deployment.** A deployment
+that runs the gateway and Hub runs the pair of the baseline: the
+release `v1.2.0` of the gateway and the release `v1.0.0` of Hub. The
+gateway does not sign the legacy format `v4` of the identity any
+more, so a deployment that still verifies the identity with the derived
+key of the gateway has to declare it with `DATA_LEGACY_IDENTITY=allow`
+until it moves to the public key; the steps are in
+[the getting started](getting-started.md).
 
 ### Added
 
@@ -85,8 +79,57 @@ reachable, and they do not change the contract of the API.
   the entries that are spent leave it. It is declared with
   `DATA_CONTEXT_CACHE_MAX_ENTRIES`.
 
+- **The tag of the release is created by the workflow of the
+  repository.** The workflow `the tag of the release` runs on every push
+  to the `main` branch: it reads the version of the project, it
+  compares it with the tags that exist, and it creates and pushes the
+  tag when the version increased. The command
+  `bun run scripts/tag-release.ts` is the same one, and it writes the
+  version of the release in the three files of the project with
+  `--set`. The push of the tag needs a personal access token with the
+  permission `contents: write`, the secret `RELEASE_TOKEN`: a push
+  made with the token of the repository does not start the workflows of
+  the release.
+- **The differential test of the guard of a write**
+  (`test/integration/write-guard.test.ts`): it generates the policies
+  of a write, it writes the rows they are read over, and it compares
+  the evaluation in memory with the statement of the database. It is a
+  step of the continuous integration, with the seeds of the other
+  generated checks.
+- **The capacity of the release candidate of the version `1.0.0`** is
+  measured and published in [the capacity](capacity.md), with the same
+  command as the version `0.2.0`.
+
 ### Changed
 
+- **The baseline of the integration is the release `v1.2.0` of the
+  gateway and the release `v1.0.0` of Hub.** The manifest
+  `compatibility.json` holds the revisions that the compatibility
+  harness proves: the gateway is `v1.2.0` and the hub is `v1.0.0`.
+  It is the pair that the platform publishes together: the manifest of
+  Hub `v1.0.0` pins the gateway `v1.2.0`. The contract of the API does
+  not change: the identity of the gateway is still the version `v5`,
+  the access context of Hub is still the version `1`, and the
+  acceptance scenario through the gateway passes with the two releases.
+- **The guide of the compatibility owns the copy of the manifest.** The
+  guide showed the revisions of the baseline in a block of its own, and
+  a revision that is written twice drifts. The block is generated from
+  the manifest, and the check of the drift proves that the two agree.
+- **The symmetric format `v4` of the identity of the gateway is gone
+  from the gateway.** The gateway does not sign it any more: its key
+  was shared with the upstreams, so an upstream that verified an
+  identity could mint one. The service still refuses the format by
+  default, and the compatibility harness proves that refusal with a
+  signature it builds itself.
+- **The fixture of the identity is the one of the revision of the
+  baseline.** The generator of the fixture used a signer of the
+  gateway that the release `1.0.0` of the gateway removed, so the
+  fixture could not be regenerated any more. The signatures of the
+  current format still come from the code of the pinned gateway, and
+  the derivation of the key of the legacy format — the only part that
+  the gateway does not offer any more — is local. The fixture carries
+  the revision it comes from, and the suite refuses a fixture that does
+  not carry the revision of the manifest.
 - **The predicate of a write is evaluated by the database.** The
   statement of the write carries the `where` and the `check` of the
   applicable policies, compiled by the same compiler as the queries.
@@ -115,46 +158,6 @@ reachable, and they do not change the contract of the API.
   restore refuse a client that is older than their server with a
   message that names both versions.
 
-### Added
-
-- **The tag of the release is created by the workflow of the
-  repository.** The workflow `the tag of the release` runs on every push
-  to the `main` branch: it reads the version of the project, it
-  compares it with the tags that exist, and it creates and pushes the
-  tag when the version increased. The command
-  `bun run scripts/tag-release.ts` is the same one, and it writes the
-  version of the release in the three files of the project with
-  `--set`. The push of the tag needs a personal access token with the
-  permission `contents: write`, the secret `RELEASE_TOKEN`: a push
-  made with the token of the repository does not start the workflows of
-  the release.
-- **The differential test of the guard of a write**
-  (`test/integration/write-guard.test.ts`): it generates the policies
-  of a write, it writes the rows they are read over, and it compares
-  the evaluation in memory with the statement of the database. It is a
-  step of the continuous integration, with the seeds of the other
-  generated checks.
-- **The capacity of the release candidate of the version `1.0.0`** is
-  measured and published in [the capacity](capacity.md), with the same
-  command as the version `0.2.0`.
-
-### Fixed
-
-- **The backup of a deployment works with the roles of the
-  deployment.** The tables of the deployment carry the row level
-  security, and it is forced: the owner of a table is subject to it.
-  The backup was taken with the owner of the schema, and `pg_dump`
-  refused to read the rows. The command of the backup refuses a role
-  that is subject to the policies of the tables and names the role that
-  bypasses them, and the command of the restore gives the ownership of
-  the restored tables back to the owner of the schema.
-- **The rehearsal of the backup and of the restore is a command of the
-  repository.** `bash scripts/rehearse-backup.sh` starts a server of
-  its own, it provisions the roles, it applies the migrations, it
-  writes a workspace and its record, and it runs the two commands of
-  the deployment. The rehearsal of the release candidate of the version
-  `1.0.0` is in [the backup and the restore](backup-restore.md).
-
 ### Deprecated
 
 - **The legacy verification of the identity of the gateway.** The
@@ -170,6 +173,51 @@ reachable, and they do not change the contract of the API.
   legacy format has to declare it with `DATA_LEGACY_IDENTITY=allow`, and
   it has to move to the public key of the gateway: the steps are in
   [the getting started](getting-started.md).
+
+### Fixed
+
+- **The failures of the database are the codes of the contract.** A
+  lock that was not granted in time, a constraint that was violated
+  and a statement that ran out of its budget were answered with a
+  `500 INTERNAL_ERROR`. They are answered with the codes that the
+  contract publishes: `409 CONFLICT`, `422 VALIDATION_FAILED`,
+  `504 DEADLINE_EXCEEDED` and `503 DATABASE_UNAVAILABLE`. The
+  translation of the SQLSTATE of the server is one table, in the
+  platform layer.
+- **A refusal of a cursor is not an internal error.** A cursor that
+  was tampered with answered `500 INTERNAL_ERROR`; it answers the
+  `400 INVALID_CURSOR` of the contract, and a cursor that expired
+  answers `409 CURSOR_STALE`.
+- **A statement that failed does not take the connection of the pool
+  with it.** A failing statement marked the transaction as broken, and
+  a broken connection was neither returned to the pool nor destroyed:
+  the connection was lost. Twenty failing writes exhausted the pool
+  of the api and every request of the deployment answered `503`
+  afterwards. A connection that is broken is destroyed, and a statement
+  that fails does not break a connection.
+- **The budget of the size of an answer bounds the memory.** The four
+  mebibytes of the contract were checked once the answer was built.
+  The budget is spent as the answer is built, and an answer that is
+  refused is never built.
+- **The expansion of a relation is read with one statement.** The
+  expansion was read with one statement per root row of the page, and
+  it was read in one piece. It is read in chunks whose size follows
+  the size of the rows, and the relation of a page is read at once.
+
+- **The backup of a deployment works with the roles of the
+  deployment.** The tables of the deployment carry the row level
+  security, and it is forced: the owner of a table is subject to it.
+  The backup was taken with the owner of the schema, and `pg_dump`
+  refused to read the rows. The command of the backup refuses a role
+  that is subject to the policies of the tables and names the role that
+  bypasses them, and the command of the restore gives the ownership of
+  the restored tables back to the owner of the schema.
+- **The rehearsal of the backup and of the restore is a command of the
+  repository.** `bash scripts/rehearse-backup.sh` starts a server of
+  its own, it provisions the roles, it applies the migrations, it
+  writes a workspace and its record, and it runs the two commands of
+  the deployment. The rehearsal of the release candidate of the version
+  `1.0.0` is in [the backup and the restore](backup-restore.md).
 
 ## 0.2.0 — the public key of the identity of the gateway (2026-10-22)
 

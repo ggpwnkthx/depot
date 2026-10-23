@@ -51,8 +51,8 @@ of the hub and the revisions that are tested against them.
 
 | Project | Repository | Revision |
 | --- | --- | --- |
-| Shuttle | https://github.com/ggpwnkthx/shuttle.git | `1199d6d350be86b0081cb367e022722649825544` |
-| Hub | https://github.com/ggpwnkthx/hub.git | `c52681fb3164ee952df93ae9dec8317dc6f9ce91` |
+| Shuttle | https://github.com/ggpwnkthx/shuttle.git | `76b3ff8c34019f1cdb32d7e8c135e785ef3da725` |
+| Hub | https://github.com/ggpwnkthx/hub.git | `21bbc7f3e44786f6ca4a27a0223fecac3004ff25` |
 
 <!-- compatibility-baseline:end -->
 
@@ -297,6 +297,13 @@ a deployment that configures it is a deployment whose upstream can mint
 identities, and the replacement of the key is a coordinated operation
 of the deployment. The service refuses it by default, and it is removed
 in the version `2.0.0`.
+
+The pinned gateway does not sign the legacy format any more: it was
+removed in the release `1.0.0` of the gateway, because its key was
+shared with the upstreams. The format stays a migration path of the
+backend for the deployments whose gateway is older, and the
+compatibility harness proves the refusal of the backend with a
+signature that it builds itself.
 
 The signature binds the target of the request and the identity. It does
 not bind the body, and it provides no timestamp and no nonce. The

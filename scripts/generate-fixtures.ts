@@ -18,7 +18,7 @@
 import { spawnSync } from 'bun'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { generateKeyPairSync } from 'node:crypto'
+import { createHmac, generateKeyPairSync } from 'node:crypto'
 import { readCompatibilityManifest } from './compatibility-manifest'
 
 const checkout = process.env.SHUTTLE_CHECKOUT
@@ -43,8 +43,7 @@ if (revision !== pinned) {
 }
 
 const identity = await import(join(checkout, 'src/domains/forwarding/identity.ts'))
-const { signIdentity, canonicalIdentityPayload, asymmetricIdentityKey, symmetricIdentityKey } =
-  identity
+const { signIdentity, canonicalIdentityPayload, asymmetricIdentityKey } = identity
 
 /**
  * The secret of the legacy fixture.
@@ -53,7 +52,25 @@ const { signIdentity, canonicalIdentityPayload, asymmetricIdentityKey, symmetric
  * sessions of a gateway that signs with the derived key.
  */
 const LEGACY_SECRET = 'shuttle-fixture-session-secret-0001'
-const legacyKey = symmetricIdentityKey(LEGACY_SECRET)
+
+/**
+ * The derived key of the legacy format.
+ *
+ * The gateway does not sign the legacy format any more: it was removed
+ * in the release `1.0.0`, because its key was shared with the upstreams
+ * and an upstream that verified an identity could mint one. The backend
+ * still reads the format for the deployments whose gateway is older,
+ * so the fixture still carries it, and the derivation of the key is the
+ * one part that the gateway does not offer any more: it is the
+ * `HMAC-SHA256` of the secret of the sessions and of the label of the
+ * format. The payload and the signature are still the ones of the
+ * gateway: the signer of the gateway signs them with this key.
+ */
+const legacyKey = {
+  version: 'v4',
+  algorithm: 'HS256',
+  key: createHmac('sha256', LEGACY_SECRET).update('shuttle-identity-signature-v1').digest(),
+}
 
 /**
  * The key pair of the current fixture.

@@ -15,7 +15,7 @@ import {
   git,
   sourceOf,
 } from '../../scripts/compatibility-git'
-import { baselineBlock, checkBaselineDrift } from '../../scripts/check-compatibility'
+import { baselineBlock, checkBaselineDrift, manifestBlock } from '../../scripts/check-compatibility'
 
 /** The manifest of the repository. */
 const manifest = await readCompatibilityManifest()
@@ -261,5 +261,60 @@ describe('the drift of the baseline', () => {
       ],
     })
     expect(problems.length).toBeGreaterThan(0)
+  })
+
+  test('the block of the manifest of the guide agrees with the manifest', () => {
+    const problems = checkBaselineDrift({
+      manifest,
+      specs: baselineBlock(manifest),
+      guide: manifestBlock(manifest),
+      workflows: [],
+    })
+    expect(problems).toHaveLength(0)
+  })
+
+  test('a guide that holds another revision is a drift', () => {
+    const guide = manifestBlock({
+      ...manifest,
+      repositories: {
+        ...manifest.repositories,
+        hub: { url: manifest.repositories.hub.url, commit: 'b'.repeat(40) },
+      },
+    })
+    const problems = checkBaselineDrift({
+      manifest,
+      specs: baselineBlock(manifest),
+      guide,
+      workflows: [],
+    })
+    expect(problems.length).toBeGreaterThan(0)
+  })
+
+  test('a guide without the block of the manifest is a drift', () => {
+    const problems = checkBaselineDrift({
+      manifest,
+      specs: baselineBlock(manifest),
+      guide: 'the guide without the block',
+      workflows: [],
+    })
+    expect(problems.length).toBeGreaterThan(0)
+  })
+})
+
+describe('the fixture of the identity', () => {
+  test('it is the fixture of the revision of the baseline', async () => {
+    const fixture = (await Bun.file('test/fixtures/shuttle-identity.json').json()) as {
+      shuttleCommit: string
+      current: { version: string; algorithm: string; publicKeyPem: string }
+      legacy: { version: string; algorithm: string }
+    }
+    // The fixture is the evidence of the contract of the revision of
+    // the baseline: a fixture of another revision is the evidence of
+    // another contract, and a change of the baseline that does not
+    // regenerate it is a change that is not proved.
+    expect(fixture.shuttleCommit).toBe(manifest.repositories.shuttle.commit)
+    expect(fixture.current.version).toBe('v5')
+    expect(fixture.current.algorithm).toBe('ES256')
+    expect(fixture.current.publicKeyPem).toContain('BEGIN PUBLIC KEY')
   })
 })

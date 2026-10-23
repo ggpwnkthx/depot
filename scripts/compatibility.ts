@@ -42,7 +42,8 @@ import { spawn, spawnSync, type Subprocess } from 'bun'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { generateKeyPairSync } from 'node:crypto'
+import { createHmac, generateKeyPairSync } from 'node:crypto'
+import { CompactSign } from 'jose'
 import { Client } from 'pg'
 import { startPostgres, type StartedPostgres } from './postgres'
 import { freePort } from './postgres'
@@ -963,18 +964,41 @@ async function main(): Promise<void> {
     step('a workspace that does not agree with the path is refused')
 
     // The legacy format is refused by a route of the current format.
-    const legacySignature = gatewayIdentity.signIdentity(
-      { subject: principalId, roles: ['member'], workspaceId: WORKSPACE_ID },
-      { method: 'GET', path: `/ws/${WORKSPACE_ID}/v1/items/articles`, query: '', host: HOST },
-      gatewayIdentity.symmetricIdentityKey(SESSION_SECRET)
+    //
+    // The symmetric format `v4` is removed from the gateway: its key was
+    // shared with the upstreams, so an upstream that verified an
+    // identity could mint one. The gateway does not sign it anymore,
+    // so the harness builds the signature itself, with the derived key
+    // of the legacy format and the canonical payload of that version.
+    // The refusal is the property that is proved: a route of the
+    // current format never accepts the legacy one.
+    const legacyPayload = new TextEncoder().encode(
+      JSON.stringify({
+        v: 'v4',
+        method: 'GET',
+        path: `/ws/${WORKSPACE_ID}/v1/items/articles`,
+        query: '',
+        host: HOST,
+        subject: principalId,
+        workspaceId: WORKSPACE_ID,
+        email: '',
+        roles: ['member'],
+      })
     )
+    const legacyKey = createHmac('sha256', SESSION_SECRET)
+      .update('shuttle-identity-signature-v1')
+      .digest()
+    const legacyJws = await new CompactSign(legacyPayload)
+      .setProtectedHeader({ alg: 'HS256', typ: 'shuttle-identity' })
+      .sign(legacyKey)
+    const [legacyHeader, , legacySignaturePart] = legacyJws.split('.')
     const legacyRequest = await fetch(`${backendUrl}/ws/${WORKSPACE_ID}/v1/items/articles`, {
       headers: {
         'x-forwarded-host': HOST,
         'x-shuttle-user': principalId,
         'x-shuttle-workspace': WORKSPACE_ID,
         'x-shuttle-roles': 'member',
-        'x-shuttle-signature': await legacySignature,
+        'x-shuttle-signature': `v4=${legacyHeader}..${legacySignaturePart}`,
       },
     })
     if (legacyRequest.status !== 401) {

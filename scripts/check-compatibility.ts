@@ -21,8 +21,15 @@ import { type CompatibilityManifest, readCompatibilityManifest } from './compati
 export const BASELINE_START = '<!-- compatibility-baseline:start -->'
 export const BASELINE_END = '<!-- compatibility-baseline:end -->'
 
+/** The markers of the block of the manifest in the guide. */
+export const MANIFEST_START = '<!-- compatibility-manifest:start -->'
+export const MANIFEST_END = '<!-- compatibility-manifest:end -->'
+
 /** The specification of the service. */
 const SPECS_FILE = 'docs/specification.md'
+
+/** The guide of the compatibility with the platform. */
+const GUIDE_FILE = 'docs/compatibility.md'
 
 /** The directory of the workflows. */
 const WORKFLOWS_DIRECTORY = '.github/workflows'
@@ -53,7 +60,28 @@ export function baselineBlock(manifest: CompatibilityManifest): string {
 }
 
 /**
- * Checks the baseline of the specification and of the workflows.
+ * The block of the manifest, as it is written in the guide.
+ *
+ * The guide shows the manifest of the baseline: a revision that is
+ * written twice is a revision that drifts, so the block is generated
+ * from the manifest and the check of the drift proves that the two
+ * still agree.
+ */
+export function manifestBlock(manifest: CompatibilityManifest): string {
+  return [
+    MANIFEST_START,
+    '',
+    '```json',
+    JSON.stringify(manifest, null, 2),
+    '```',
+    '',
+    MANIFEST_END,
+  ].join('\n')
+}
+
+/**
+ * Checks the baseline of the specification, of the guide and of the
+ * workflows.
  *
  * The check is small on purpose: it proves that the active documentation
  * and the workflows agree with the manifest, and it says nothing about
@@ -62,6 +90,7 @@ export function baselineBlock(manifest: CompatibilityManifest): string {
 export function checkBaselineDrift(options: {
   readonly manifest: CompatibilityManifest
   readonly specs: string
+  readonly guide?: string
   readonly workflows: readonly { readonly name: string; readonly text: string }[]
 }): BaselineProblem[] {
   const problems: BaselineProblem[] = []
@@ -84,6 +113,30 @@ export function checkBaselineDrift(options: {
           'the block of the baseline does not agree with compatibility.json: ' +
           'run `bun run scripts/check-compatibility.ts --write`',
       })
+    }
+  }
+
+  // The guide shows the manifest itself: the revision of the baseline
+  // is not written twice, and the copy that is written cannot drift.
+  if (options.guide !== undefined) {
+    const start = options.guide.indexOf(MANIFEST_START)
+    const end = options.guide.indexOf(MANIFEST_END)
+    if (start < 0 || end < 0 || end < start) {
+      problems.push({
+        file: GUIDE_FILE,
+        message: `the block of the manifest is not there (${MANIFEST_START})`,
+      })
+    } else {
+      const block = options.guide.slice(start, end + MANIFEST_END.length)
+      const expected = manifestBlock(options.manifest)
+      if (block !== expected) {
+        problems.push({
+          file: GUIDE_FILE,
+          message:
+            'the block of the manifest does not agree with compatibility.json: ' +
+            'run `bun run scripts/check-compatibility.ts --write`',
+        })
+      }
     }
   }
 
@@ -119,6 +172,7 @@ async function readWorkflows(): Promise<{ name: string; text: string }[]> {
 async function main(): Promise<void> {
   const manifest = await readCompatibilityManifest()
   const specs = await readFile(SPECS_FILE, 'utf8')
+  const guide = await readFile(GUIDE_FILE, 'utf8')
   const workflows = await readWorkflows()
   const write = process.argv.includes('--write')
   if (write) {
@@ -132,10 +186,26 @@ async function main(): Promise<void> {
       SPECS_FILE,
       specs.slice(0, start) + block + specs.slice(end + BASELINE_END.length)
     )
-    console.log(JSON.stringify({ level: 'info', msg: 'the block of the baseline was written' }))
+    const manifestText = manifestBlock(manifest)
+    const guideStart = guide.indexOf(MANIFEST_START)
+    const guideEnd = guide.indexOf(MANIFEST_END)
+    if (guideStart < 0 || guideEnd < 0) {
+      throw new Error(`the block of the manifest is not there in ${GUIDE_FILE}`)
+    }
+    await writeFile(
+      GUIDE_FILE,
+      guide.slice(0, guideStart) + manifestText + guide.slice(guideEnd + MANIFEST_END.length)
+    )
+    console.log(
+      JSON.stringify({
+        level: 'info',
+        msg: 'the blocks of the baseline were written',
+        files: [SPECS_FILE, GUIDE_FILE],
+      })
+    )
     return
   }
-  const problems = checkBaselineDrift({ manifest, specs, workflows })
+  const problems = checkBaselineDrift({ manifest, specs, guide, workflows })
   if (problems.length > 0) {
     for (const problem of problems) {
       console.error(JSON.stringify({ level: 'error', file: problem.file, msg: problem.message }))

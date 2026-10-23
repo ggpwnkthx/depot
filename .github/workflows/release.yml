@@ -7,10 +7,10 @@ name: release
 # real PostgreSQL with the roles of a deployment, it publishes it to the
 # registry and it exports it as an artifact of the run.
 #
-#   git tag v0.2.0 && git push origin v0.2.0
+#   git tag v0.3.0 && git push origin v0.3.0
 #
 # The image is published with two tags: the tag of the release
-# (`v0.2.0`) and the version itself (`0.2.0`). A
+# (`v0.3.0`) and the version itself (`0.3.0`). A
 # deployment that pins a version pins the image of that release.
 on:
   push:

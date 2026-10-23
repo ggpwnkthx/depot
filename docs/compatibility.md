@@ -12,24 +12,33 @@ The manifest `compatibility.json`, at the root of the repository, is the
 one place that owns the repositories of the gateway and of the hub and
 the revisions that are tested against them.
 
+<!-- compatibility-manifest:start -->
+
 ```json
 {
   "version": 1,
   "repositories": {
     "shuttle": {
       "url": "https://github.com/ggpwnkthx/shuttle.git",
-      "commit": "1199d6d350be86b0081cb367e022722649825544"
+      "commit": "76b3ff8c34019f1cdb32d7e8c135e785ef3da725"
     },
     "hub": {
       "url": "https://github.com/ggpwnkthx/hub.git",
-      "commit": "c52681fb3164ee952df93ae9dec8317dc6f9ce91"
+      "commit": "21bbc7f3e44786f6ca4a27a0223fecac3004ff25"
     }
   }
 }
 ```
 
+<!-- compatibility-manifest:end -->
+
 The revisions are full commits: they are immutable, and a change of
 the baseline is a change of the manifest and a new run of the harness.
+
+The baseline is the release `v1.2.0` of the gateway and the release
+`v1.0.0` of Hub. The two are the pair that the platform publishes
+together: the manifest of Hub `v1.0.0` pins the gateway `v1.2.0`, and
+the harness proves the depot against that pair.
 
 The baseline is written in the [specification](specification.md) §1.1,
 and the check of the drift proves that the two still agree:
@@ -120,3 +129,12 @@ SHUTTLE_CHECKOUT=/path/to/shuttle bun run scripts/generate-fixtures.ts
 
 The checkout has to be at the revision of the baseline: the fixture is
 the evidence of the contract of that revision and not of another one.
+The fixture carries the revision it comes from, and the suite refuses a
+fixture that does not carry the revision of the manifest.
+
+The fixture also carries the legacy format `v4`, because the backend
+still reads it for the deployments whose gateway is older. The gateway
+does not sign it any more — it was removed in the release `1.0.0` — so
+the derivation of its key is the one part of the fixture that the
+harness and the generator keep locally: the payload and the signature
+are still the ones of the code of the gateway.

@@ -7,7 +7,7 @@ name: release-binaries
 # proves that the binary of the runner starts and serves, and it publishes
 # the binaries on the release of the tag.
 #
-#   git tag v0.2.0 && git push origin v0.2.0
+#   git tag v0.3.0 && git push origin v0.3.0
 #
 # A binary of the data backend is not only an executable: the service
 # reads the manifests of the collections, the policies and the migrations

@@ -21,7 +21,7 @@ The tarball of the release is the same package, for a deployment that
 pins a version with a url:
 
 ```bash
-bun add https://github.com/ggpwnkthx/depot/releases/download/v0.2.0/data-backend-client-0.2.0.tgz
+bun add https://github.com/ggpwnkthx/depot/releases/download/v0.3.0/data-backend-client-0.3.0.tgz
 ```
 
 The root of the repository is the **service**, and it is a different
