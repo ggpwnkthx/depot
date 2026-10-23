@@ -323,7 +323,7 @@ export function main(argv: readonly string[]): number {
         tags: tags.length,
       })
     )
-    publish({ created: 'false', tag: '' })
+    publish({ created: 'false', dispatch: 'false', tag: '' })
     return 0
   }
 
@@ -336,13 +336,15 @@ export function main(argv: readonly string[]): number {
         previous: decision.previous,
       })
     )
-    publish({ created: 'false', tag: decision.tag })
+    publish({ created: 'false', dispatch: 'false', tag: decision.tag })
     return 0
   }
 
   if (tags.includes(decision.tag)) {
+    // The tag is there and the version increased: the release of that
+    // tag was not published, and it is dispatched again.
     console.log(JSON.stringify({ level: 'info', msg: 'the tag exists already', tag: decision.tag }))
-    publish({ created: 'false', tag: decision.tag })
+    publish({ created: 'false', dispatch: 'true', tag: decision.tag })
     return 0
   }
 
@@ -366,7 +368,7 @@ export function main(argv: readonly string[]): number {
       tag: decision.tag,
     })
   )
-  publish({ created: 'true', tag: decision.tag })
+  publish({ created: 'true', dispatch: 'true', tag: decision.tag })
   return 0
 }
 

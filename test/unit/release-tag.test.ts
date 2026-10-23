@@ -227,3 +227,35 @@ describe('the tag of the release, on a runner', () => {
     }
   })
 })
+
+describe('the outputs of the tag', () => {
+  test('nothing is cut and nothing is dispatched when the version did not increase', () => {
+    const root = mkdtempSync(join(tmpdir(), 'depot-tag-'))
+    const previous = process.cwd()
+    try {
+      // The tag of the version exists already and the version did not
+      // increase: there is nothing to cut and nothing to dispatch.
+      mkdirSync(join(root, 'packages/client'), { recursive: true })
+      writeFileSync(join(root, 'package.json'), '{"name":"data-backend","version":"0.3.0"}')
+      writeFileSync(join(root, 'packages/client/package.json'), '{"version":"0.3.0"}')
+      writeFileSync(join(root, 'Dockerfile'), 'ARG VERSION=0.3.0\n')
+      expect(git(['init', '--quiet', root]).status).toBe(0)
+      const identity = ['-c', 'user.name=Test', '-c', 'user.email=test@example.test']
+      expect(git(['add', '--all'], root).status).toBe(0)
+      expect(git([...identity, 'commit', '--quiet', '-m', 'the release'], root).status).toBe(0)
+      expect(
+        git([...identity, 'tag', '-a', 'v0.3.0', '-m', 'the release v0.3.0'], root).status
+      ).toBe(0)
+      const output = join(root, 'output.txt')
+      process.chdir(root)
+      const code = main(['--github-output', output])
+      process.chdir(previous)
+      expect(code).toBe(0)
+      expect(readFileSync(output, 'utf8')).toContain('created=false')
+      expect(readFileSync(output, 'utf8')).toContain('dispatch=false')
+    } finally {
+      process.chdir(previous)
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})

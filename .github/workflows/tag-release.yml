@@ -103,15 +103,17 @@ jobs:
           cat "$GITHUB_OUTPUT"
 
       # The release is dispatched on the tag: the workflows read the
-      # version and the revision of the tag they publish.
+      # version and the revision of the tag they publish. The tag is
+      # the input of the two of them: a run that was started by hand
+      # takes it the same way.
       - name: the release of the tag
-        if: steps.tag.outputs.created == 'true'
+        if: steps.tag.outputs.dispatch == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          gh workflow run release.yml --ref "${TAG}"
+          gh workflow run release.yml --ref "${TAG}" -f "tag=${TAG}"
           gh workflow run release-binaries.yml --ref "${TAG}" -f "tag=${TAG}"
 
       - name: the state of the release
