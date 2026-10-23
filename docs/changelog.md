@@ -17,6 +17,49 @@ before the version `1.0.0`: the gates of the repository are green, and
 the two gates that are outside of it are listed in
 [the readiness of the version 1.0.0](release-readiness.md).
 
+## 0.4.0 — the platform of the releases 2.0.0 (2026-10-23)
+
+The baseline of the integration moves to the pair that the platform
+publishes: the release `v2.0.0` of the gateway and the release `v2.0.0`
+of Hub. The contract of the API of the service does not change: the path
+of every route is still `v1`, the identity of the gateway is still the
+version `v5`, and the access context of Hub is still the version `1`.
+
+### Changed
+
+- **The baseline of the integration is the release `v2.0.0` of the
+  gateway and the release `v2.0.0` of Hub.** The manifest
+  `compatibility.json` holds the revisions that the compatibility
+  harness proves: the gateway is `v2.0.0` and the hub is `v2.0.0`. It
+  is the pair that the platform publishes together: the manifest of Hub
+  `v2.0.0` pins the gateway `v2.0.0`. The contract of the API of the
+  service does not change: the path of every route is still `v1`, the
+  identity of the gateway is still the version `v5`, and the access
+  context of Hub is still the version `1`. The two releases are
+  **MAJOR** ones and they change the contracts of the platform: the
+  gateway writes the subject of the caller as it is, it decides the host
+  before the method, it reads the address of the caller from the number
+  of the proxies, and the ranges of the environment replace the ranges
+  of the route table; Hub scopes the credentials of a gateway to their
+  tenant, and the access context contract — the one this service speaks —
+  is unchanged. The guide of the compatibility lists each change and
+  what it means for a deployment.
+- **The subject of the identity is read as it is.** The gateway of the
+  release `v2.0.0` writes the subject of the caller without rewriting
+  it, and the subject of the tokens of Hub is a uuid. The backend read
+  the headers of the identity and trimmed them before it rebuilt the
+  signed bytes: a header that carried a value the gateway did not write
+  could be rebuilt as one that it was, and the request could be
+  accepted. The values of the identity are read as they are now, they
+  are never normalized before the signed bytes are rebuilt, and the
+  suite proves that a subject and a workspace that the gateway did not
+  write are refused.
+- **The fixture of the identity is the one of the revision of the
+  baseline.** The fixture of the signature of the identity is produced by
+  the pinned gateway itself, and the pinned gateway is now the release
+  `v2.0.0`: the bytes of the fixture come from the code of that
+  revision.
+
 ## 0.3.1 — the current platform and the fixes of the release (2026-10-23)
 
 The baseline of the integration moves to the pair that the platform

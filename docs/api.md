@@ -438,9 +438,9 @@ revision history.
 
 | The thing | Its version | Where it is |
 | --- | --- | --- |
-| The service | `0.3.1` | The answer of `/healthz` (`version`), the label of the image and the version of the package. |
+| The service | `0.4.0` | The answer of `/healthz` (`version`), the label of the image and the version of the package. |
 | The API | `v1` | The path of every route of the data. |
-| The client | `0.3.1` | `packages/client/package.json` and the tarball of the release. |
+| The client | `0.4.0` | `packages/client/package.json` and the tarball of the release. |
 | The access context contract | `1` | The discovery of Hub. |
 | The signature of the gateway | `v5` | The header of the identity. The legacy version `v4` is a migration path: the deployment declares it with `DATA_LEGACY_IDENTITY`, and the service refuses it by default. |
 | The format of the manifest | `1` | The `version` of the manifest. |

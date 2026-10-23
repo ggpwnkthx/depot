@@ -33,7 +33,7 @@ deployment on every record.
 
 ## The status of the release
 
-**Version 0.3.1 is published, and it is a pre-production release.** It
+**Version 0.4.0 is published, and it is a pre-production release.** It
 is implemented, it passes its own gates, and the compatibility harness
 runs it against the real gateway and the real hub — but it has never
 run outside its own harness. It has no production history, no external
@@ -56,16 +56,16 @@ The release carries the service in three forms:
 
 | What | Where |
 | --- | --- |
-| The image | `ghcr.io/ggpwnkthx/depot:0.3.1` |
-| The standalone binaries | The assets of the [release `v0.3.1`](https://github.com/ggpwnkthx/depot/releases/tag/v0.3.1) |
-| The typed client | `data-backend-client-0.3.1.tgz`, an asset of the same release |
+| The image | `ghcr.io/ggpwnkthx/depot:0.4.0` |
+| The standalone binaries | The assets of the [release `v0.4.0`](https://github.com/ggpwnkthx/depot/releases/tag/v0.4.0) |
+| The typed client | `data-backend-client-0.4.0.tgz`, an asset of the same release |
 
 ```bash
 # The image of the service.
-docker pull ghcr.io/ggpwnkthx/depot:0.3.1
+docker pull ghcr.io/ggpwnkthx/depot:0.4.0
 
 # The typed client.
-bun add https://github.com/ggpwnkthx/depot/releases/download/v0.3.1/data-backend-client-0.3.1.tgz
+bun add https://github.com/ggpwnkthx/depot/releases/download/v0.4.0/data-backend-client-0.4.0.tgz
 # or, from the registry of the packages:
 bun add @data-backend/client
 ```

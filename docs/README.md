@@ -44,7 +44,7 @@ for.
 
 ## The status of the release
 
-**Version 0.3.1 is published, and it is a pre-production release.** It
+**Version 0.4.0 is published, and it is a pre-production release.** It
 is implemented, it passes its own gates, and the compatibility harness
 runs it against the real gateway and the real hub — but it has never
 run outside its own harness. It has no production history, no external

@@ -20,11 +20,11 @@ the revisions that are tested against them.
   "repositories": {
     "shuttle": {
       "url": "https://github.com/ggpwnkthx/shuttle.git",
-      "commit": "0e09a420f8d5f7f3e2eea63512f808ce4ae215e0"
+      "commit": "89701713e50812f000f77c5ac9313527f0be3bfe"
     },
     "hub": {
       "url": "https://github.com/ggpwnkthx/hub.git",
-      "commit": "ef69e2fdd683572a68585c9234498e1cec3850f9"
+      "commit": "2d923fab44ce661a8cf3adbb50a0b07863f1f60c"
     }
   }
 }
@@ -35,9 +35,9 @@ the revisions that are tested against them.
 The revisions are full commits: they are immutable, and a change of
 the baseline is a change of the manifest and a new run of the harness.
 
-The baseline is the release `v1.3.0` of the gateway and the release
-`v1.0.1` of Hub. The two are the pair that the platform publishes
-together: the manifest of Hub `v1.0.1` pins the gateway `v1.3.0`, and
+The baseline is the release `v2.0.0` of the gateway and the release
+`v2.0.0` of Hub. The two are the pair that the platform publishes
+together: the manifest of Hub `v2.0.0` pins the gateway `v2.0.0`, and
 the harness proves the depot against that pair.
 
 The baseline is written in the [specification](specification.md) §1.1,
@@ -51,6 +51,57 @@ The check also refuses a workflow of the continuous integration that
 holds a revision of its own: a pin that is written twice is a pin that
 drifts, and a harness that runs against another revision than the one
 of the specification proves nothing.
+
+## The releases `2.0.0` of the platform
+
+The two releases of the platform are **MAJOR** ones: they change the
+contracts of the gateway and of Hub. The contract of the API of the depot
+does not change: the path of every route is still `v1`, the identity of
+the gateway is still the version `v5`, and the access context of Hub is
+still the version `1`. The depot reads the contracts of the platform and
+never writes them, so the changes below are the ones a deployment of the
+platform has to make, and the ones the depot has to follow.
+
+### The gateway, the release `v2.0.0`
+
+The gateway closes five defects of the security of a deployment. One of
+them changes the contract that the depot reads — the subject of the
+identity — and the four others are the business of the deployment of the
+gateway. The harness proves the depot against the real gateway of the
+release:
+
+| The change | What it means for the depot |
+| --- | --- |
+| The **subject** of the caller is written **as it is**: it is never rewritten, and a subject that cannot be written into a header is refused by the gateway with a `500`. | The subject of the identity of Hub is a uuid, and the backend requires it. The backend reads the header as it is and rebuilds the signed bytes from it: it MUST NOT trim it and MUST NOT normalize it. The unit suite proves that a subject that the gateway did not write is refused. |
+| The **host** is decided before the method: a catch-all that names `GET` does not answer the `GET` of a host that has a route of its own. | The bindings of the backend are per host, and the backend derives the route from the binding that matches the signed host. A deployment that relies on a catch-all of the gateway has to move the hosts it names to the catch-all. |
+| The **address of the caller** is the entry that is `SHUTTLE_TRUSTED_PROXY_HOPS` positions from the right of the chain of `x-forwarded-for`. | The variable is new and it is the business of the deployment of the gateway. A deployment behind a single ingress has nothing to do: the default is one. |
+| The **ranges of the trusted proxies** of the environment replace the ranges of the route table. | The variable is the business of the deployment of the gateway. A deployment that set `SHUTTLE_TRUSTED_PROXIES` and relied on the ranges of its file has to name the ranges of the file in the variable. |
+| The **users of the shared state in Redis** are described by a file that holds one rule per line, and the passwords are not in it. | The deployment writes the passwords of the two users after the server started. It is the business of the deployment of the gateway: the depot holds no shared state. |
+
+The format of the route table, the protocol of the decisions, the
+headers of the identity and the version of the signature are unchanged:
+`v5` is still `v5`, and the legacy format `v4` is still refused by the
+routes of the current format.
+
+### Hub, the release `v2.0.0`
+
+The contract of Hub changed, and the access context contract — the one
+the depot speaks — did not: the discovery, the request, the answer and
+the rule of the access context are the ones of the version `1`, and the
+extension that carries it is still the extension of the depot.
+
+| The change | What it means for the depot |
+| --- | --- |
+| The **credentials of a gateway** are always scoped to their tenant. The bearer token of the deployment is the only scheme that is not scoped, and it is deprecated. | The depot does not call the decision endpoint: it speaks the access context contract with its own credential, and that credential is scoped to the tenants it may ask about. The change is the business of the deployment of the gateway. |
+| The **flags of a tenant** that belong to the platform (`shared_client`, `is_default`) are the work of the operator of the platform. | The depot holds no tenant of Hub and administers none. |
+| The **budget of the limiter** of the administration is spent by the calls that fail, and the **call to a provider** is made to the address that was checked. | The depot calls no provider of Hub: the identity is the one the gateway forwards. |
+| The **answers carry the headers of a browser**, and the answer of the token endpoint is never stored by a cache. | The depot reads the body of the access context and nothing else. |
+
+The subject of the tokens of Hub is a **uuid**, and the gateway of the
+release `v2.0.0` writes it into the headers of the identity as it is:
+it is never rewritten, and it is always writable. The principal of the
+backend is therefore the uuid of the principal of Hub, and the two
+services never speak of two different callers.
 
 ## The harness
 

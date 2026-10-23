@@ -51,8 +51,8 @@ of the hub and the revisions that are tested against them.
 
 | Project | Repository | Revision |
 | --- | --- | --- |
-| Shuttle | https://github.com/ggpwnkthx/shuttle.git | `0e09a420f8d5f7f3e2eea63512f808ce4ae215e0` |
-| Hub | https://github.com/ggpwnkthx/hub.git | `ef69e2fdd683572a68585c9234498e1cec3850f9` |
+| Shuttle | https://github.com/ggpwnkthx/shuttle.git | `89701713e50812f000f77c5ac9313527f0be3bfe` |
+| Hub | https://github.com/ggpwnkthx/hub.git | `2d923fab44ce661a8cf3adbb50a0b07863f1f60c` |
 
 <!-- compatibility-baseline:end -->
 
@@ -282,6 +282,17 @@ The canonical serialization, the order of the fields, the handling of
 the roles and the fixtures of the signature MUST match the pinned
 contract of Shuttle. The values MUST NOT be normalized before the
 signed bytes are rebuilt.
+
+The gateway of the release `2.0.0` writes the **subject** of the
+identity as it is: it never rewrites it, and a subject that cannot be
+written into a header is refused by the gateway itself with a `500`. The
+backend MUST read the header as it is and MUST NOT trim the subject and
+MUST NOT normalize it: the signed bytes are the bytes of the header, and
+a subject that is not the one the gateway wrote is refused by the
+verification of the signature. The subject of the identity of Hub is a
+uuid, and the backend requires it: the principal is the uuid of the
+principal of Hub, and the two services never speak of two different
+callers.
 
 The backend receives the **public** key of the gateway, never
 `SHUTTLE_SESSION_SECRET` and never the private key of the gateway. A

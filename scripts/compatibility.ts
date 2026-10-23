@@ -626,7 +626,14 @@ async function main(): Promise<void> {
         SHUTTLE_ALLOW_MEMORY_STATE: 'true',
         SHUTTLE_COOKIE_SECURE: 'false',
         SHUTTLE_LOG_LEVEL: 'error',
+        // The ranges of the environment replace the ranges of the route
+        // table since the release `2.0.0` of the gateway: the table
+        // names the same range, and the environment is the one that
+        // counts.
         SHUTTLE_TRUSTED_PROXIES: '127.0.0.1/32',
+        // The number of the proxies that are in front of the gateway:
+        // one, the client of the harness.
+        SHUTTLE_TRUSTED_PROXY_HOPS: '1',
       },
     })
     processes.push(gateway.process)

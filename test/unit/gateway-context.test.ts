@@ -715,6 +715,48 @@ describe('the verification of a request', () => {
     ).rejects.toThrow()
   })
 
+  // The gateway of the release `2.0.0` writes the subject of the identity
+  // as it is: it never rewrites it. The backend rebuilds the signed bytes
+  // from the bytes of the header, and a value that the gateway did not
+  // write is not the one it signed.
+  test('it refuses a subject that the gateway did not write', async () => {
+    const entry = fixture.current.cases[0]!
+    await expect(
+      verifyGatewayRequest(bindings, {
+        method: entry.request.method,
+        path: entry.request.path,
+        query: entry.request.query,
+        headers: headers({
+          'x-forwarded-host': entry.request.host,
+          'x-shuttle-signature': entry.signature,
+          'x-shuttle-user': ` ${entry.identity.subject} `,
+          'x-shuttle-workspace': entry.identity.workspaceId,
+          'x-shuttle-roles': entry.identity.roles.join(','),
+          ...(entry.identity.email ? { 'x-shuttle-email': entry.identity.email } : {}),
+        }),
+      })
+    ).rejects.toThrow()
+  })
+
+  test('it refuses a workspace that the gateway did not write', async () => {
+    const entry = fixture.current.cases[0]!
+    await expect(
+      verifyGatewayRequest(bindings, {
+        method: entry.request.method,
+        path: entry.request.path,
+        query: entry.request.query,
+        headers: headers({
+          'x-forwarded-host': entry.request.host,
+          'x-shuttle-signature': entry.signature,
+          'x-shuttle-user': entry.identity.subject,
+          'x-shuttle-workspace': ` ${entry.identity.workspaceId}`,
+          'x-shuttle-roles': entry.identity.roles.join(','),
+          ...(entry.identity.email ? { 'x-shuttle-email': entry.identity.email } : {}),
+        }),
+      })
+    ).rejects.toThrow()
+  })
+
   test('it accepts the legacy request of a legacy route', async () => {
     const entry = fixture.legacy.cases[0]!
     const legacyBindings = [

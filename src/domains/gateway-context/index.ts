@@ -90,13 +90,22 @@ function reject(): never {
  * A header that appears twice is refused: the gateway writes every
  * identity header once, and a repeated header is an attempt to make the
  * reader pick the value that fits.
+ *
+ * The value is read **as it is**: it is never trimmed and never
+ * normalized. The gateway of the release `2.0.0` writes the subject of
+ * the identity without rewriting it — a subject that carries a control
+ * character is refused by the gateway itself, and the subject of Hub is a
+ * uuid — and the signed bytes are rebuilt from the bytes of the header. A
+ * reader that trimmed a value would rebuild a payload that the gateway
+ * never signed, and a request whose identity is sound would be refused.
+ * The values are validated after the signature is verified: a value that
+ * is not the one the gateway wrote fails there and not here.
  */
 function singleValue(headers: GatewayHeaders, name: string): string | undefined {
   const value = headers.get(name)
   if (value === null || value === undefined) return undefined
   if (value.includes(',')) reject()
-  const trimmed = value.trim()
-  return trimmed.length === 0 ? undefined : trimmed
+  return value.length === 0 ? undefined : value
 }
 
 /**

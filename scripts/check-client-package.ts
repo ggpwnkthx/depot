@@ -5,7 +5,7 @@
  * The typed client is published on a registry of packages, and it is
  * released as a tarball of the release of the repository:
  *
- *   bun add https://github.com/ggpwnkthx/depot/releases/download/v0.3.1/data-backend-client-0.3.1.tgz
+ *   bun add https://github.com/ggpwnkthx/depot/releases/download/v0.4.0/data-backend-client-0.4.0.tgz
  *   npm install @data-backend/client
  *
  * The check proves that the artifact that the release publishes is
