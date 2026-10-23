@@ -23,7 +23,27 @@ cd "${ROOT}"
 
 WORKSPACE="$(mktemp -d /tmp/depot-rehearsal-XXXXXX)"
 SERVER_PORT="${REHEARSAL_PORT:-39937}"
-PG_BIN="$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | tail -1)"
+# The PostgreSQL of the rehearsal is the one of the development machine:
+# the newest major that is installed, and not the one that the sort of
+# the names of the directories puts last.
+PG_BIN="${PG_BIN:-}"
+if [ -z "${PG_BIN}" ] || [ ! -x "${PG_BIN}/initdb" ]; then
+  PG_BIN=""
+  for candidate in $(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -Vr); do
+    if [ -x "${candidate}/initdb" ]; then
+      PG_BIN="${candidate}"
+      break
+    fi
+  done
+fi
+if [ -z "${PG_BIN}" ]; then
+  echo "the binaries of PostgreSQL were not found" >&2
+  exit 1
+fi
+# The client tools are the ones of the server: a client that is older
+# than the server refuses the dump, and the rehearsal would fail on the
+# tools of the machine and not on the service.
+export PATH="${PG_BIN}:${PATH}"
 OWNER_PASSWORD="rehearsal-owner-password-001"
 RUNTIME_PASSWORD="rehearsal-runtime-password-01"
 REGISTRY_PASSWORD="rehearsal-registry-password-01"

@@ -25,6 +25,20 @@ mkdir -p "${DATA_BACKUP_DIR}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 FILE="${DATA_BACKUP_DIR}/depot-${STAMP}.dump"
 
+# The client of the backup must not be older than the server:
+# PostgreSQL refuses a dump that is taken by an older client, and the
+# refusal of the client is not the message that an operator needs.
+SERVER_MAJOR="$(( $(psql "${DATA_BACKUP_DATABASE_URL}" -v ON_ERROR_STOP=1 -tA -q -c 'show server_version_num') / 10000 ))"
+CLIENT_MAJOR="$(pg_dump --version | sed -E 's/.*PostgreSQL\) ([0-9]+).*/\1/')"
+case "${CLIENT_MAJOR}" in
+  '' | *[!0-9]*) CLIENT_MAJOR=0 ;;
+esac
+if [ "${CLIENT_MAJOR}" -lt "${SERVER_MAJOR}" ]; then
+  echo "the client of the backup is the version ${CLIENT_MAJOR} and the server is the version ${SERVER_MAJOR}" >&2
+  echo "the client must not be older than the server: install the client of the major of the server" >&2
+  exit 1
+fi
+
 # The role of the backup has to see every row of the deployment: the
 # tables of the business carry the row level security, forced, and the
 # owner of a table is subject to it.

@@ -20,6 +20,20 @@ set -euo pipefail
 : "${DATA_BACKUP_FILE:?the file of the backup is required}"
 : "${DATA_RESTORE_DATABASE:?the name of the database of the rehearsal is required}"
 
+# The client of the restore must not be older than the server: a dump
+# that is taken by a newer client is not restored by an older one, and
+# the refusal of the client is not the message that an operator needs.
+SERVER_MAJOR="$(( $(psql "${DATA_ADMIN_DATABASE_URL}" -v ON_ERROR_STOP=1 -tA -q -c 'show server_version_num') / 10000 ))"
+CLIENT_MAJOR="$(pg_restore --version | sed -E 's/.*PostgreSQL\) ([0-9]+).*/\1/')"
+case "${CLIENT_MAJOR}" in
+  '' | *[!0-9]*) CLIENT_MAJOR=0 ;;
+esac
+if [ "${CLIENT_MAJOR}" -lt "${SERVER_MAJOR}" ]; then
+  echo "the client of the restore is the version ${CLIENT_MAJOR} and the server is the version ${SERVER_MAJOR}" >&2
+  echo "the client must not be older than the server: install the client of the major of the server" >&2
+  exit 1
+fi
+
 echo "the database of the rehearsal is created"
 psql "${DATA_ADMIN_DATABASE_URL}" -c "drop database if exists ${DATA_RESTORE_DATABASE}" >/dev/null
 psql "${DATA_ADMIN_DATABASE_URL}" -c "create database ${DATA_RESTORE_DATABASE}" >/dev/null

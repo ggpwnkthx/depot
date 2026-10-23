@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18
         env:
           POSTGRES_USER: depot
           POSTGRES_PASSWORD: depot
@@ -29,6 +29,26 @@ jobs:
           bun-version: 1.4.3
       - name: the installation
         run: bun install --frozen-lockfile
+      # The suites prove the semantics of a version, and the version of
+      # the development machine is the newest major: the runner does not
+      # have it, and it is installed here.
+      - name: the installation of the postgres
+        run: |
+          # The repository of PostgreSQL is added when the runner does
+          # not have it: the images of the runner carry some majors and
+          # not the others.
+          if ! grep -qs 'apt.postgresql.org' /etc/apt/sources.list.d/* 2>/dev/null; then
+            sudo install -d /usr/share/postgresql-common/pgdg
+            sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+            echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo $VERSION_CODENAME)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+            sudo chmod 644 /etc/apt/sources.list.d/pgdg.list
+          fi
+          sudo apt-get update
+          sudo apt-get install -y postgresql-18 postgresql-client-18
+          # The cluster of the package does not run: the suites start a
+          # server of their own, and the service of the job holds the
+          # port of the database.
+          sudo pg_ctlcluster 18 main stop || true
       - name: the dependencies
         run: bun audit
       - name: the types
@@ -87,6 +107,34 @@ jobs:
           # here for the deployments that want to use it.
           TEST_DATABASE_URL: postgres://depot:depot@127.0.0.1:5432/postgres
 
+  # A deployment may run the floor of the supported majors, and the
+  # requirement of the service is not on the newest one. The suites of
+  # the floor are the proof of that requirement, and they are a job of
+  # their own: the machine of the development uses the newest major.
+  floor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+      - name: the installation
+        run: bun install --frozen-lockfile
+      - name: the installation of the postgres
+        run: |
+          if ! grep -qs 'apt.postgresql.org' /etc/apt/sources.list.d/* 2>/dev/null; then
+            sudo install -d /usr/share/postgresql-common/pgdg
+            sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+            echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo $VERSION_CODENAME)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+            sudo chmod 644 /etc/apt/sources.list.d/pgdg.list
+          fi
+          sudo apt-get update
+          sudo apt-get install -y postgresql-15 postgresql-client-15
+      - name: the database, the transactions and the worker
+        run: bun test test/integration
+        env:
+          POSTGRES_MAJOR: '15'
+
   compatibility:
     runs-on: ubuntu-latest
     steps:
@@ -98,8 +146,14 @@ jobs:
         run: bun install --frozen-lockfile
       - name: the installation of the postgres
         run: |
+          if ! grep -qs 'apt.postgresql.org' /etc/apt/sources.list.d/* 2>/dev/null; then
+            sudo install -d /usr/share/postgresql-common/pgdg
+            sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+            echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo $VERSION_CODENAME)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+            sudo chmod 644 /etc/apt/sources.list.d/pgdg.list
+          fi
           sudo apt-get update
-          sudo apt-get install -y postgresql postgresql-client
+          sudo apt-get install -y postgresql-18 postgresql-client-18
       # The repositories and the revisions are the ones of the
       # manifest `compatibility.json`: the workflow does not hold a pin
       # of its own, and the check of the drift refuses it when it does.
@@ -114,7 +168,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18
         env:
           POSTGRES_USER: depot
           POSTGRES_PASSWORD: depot
@@ -142,7 +196,7 @@ jobs:
       - name: the service of the image answers its probe
         run: |
           docker network create depot-ci
-          docker run -d --name depot-pg --network depot-ci -e POSTGRES_USER=depot -e POSTGRES_PASSWORD=depot -e POSTGRES_DB=postgres postgres:16-alpine
+          docker run -d --name depot-pg --network depot-ci -e POSTGRES_USER=depot -e POSTGRES_PASSWORD=depot -e POSTGRES_DB=postgres postgres:18-alpine
           until docker exec depot-pg pg_isready -U depot; do sleep 1; done
           docker run --rm --network depot-ci -e DATA_ADMIN_DATABASE_URL=postgres://depot:depot@depot-pg:5432/postgres -e DATA_OWNER_DATABASE_URL=postgres://data_owner:ci-owner-password-000001@depot-pg:5432/depot -e DATA_OWNER_PASSWORD=ci-owner-password-000001 -e DATA_RUNTIME_PASSWORD=ci-runtime-password-00001 -e DATA_REGISTRY_PASSWORD=ci-registry-password-0001 -e DATA_DELIVERY_PASSWORD=ci-delivery-password-0001 -e DATA_MAINTENANCE_PASSWORD=ci-maintenance-password-001 depot:test sh -c "bun run scripts/provision.ts && bun run scripts/migrate.ts"
           docker run -d --name depot-api --network depot-ci \

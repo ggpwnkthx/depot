@@ -7,29 +7,81 @@
  * the development stack and by the integration tests: the tests need a
  * real server, because the isolation, the locking and the claims of the
  * workers are the behaviour of a server and not of an embedded engine.
+ *
+ * The development machine, the tests and the continuous integration use
+ * the version `DEVELOPMENT_MAJOR`. A deployment may run an older major:
+ * the requirement of a deployment is in `README.md`, and it is not
+ * checked here.
  */
 
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { join, resolve } from 'node:path'
 
-/** The candidates for the binaries of PostgreSQL. */
+/**
+ * The major of PostgreSQL that the development machine, the tests and
+ * the continuous integration use.
+ *
+ * It is the newest major that the repository proves, and it is not the
+ * requirement of a deployment: a deployment may run an older major, and
+ * the suites of the floor prove it.
+ */
+export const DEVELOPMENT_MAJOR = 18
+
+/**
+ * The major that the machine asks for.
+ *
+ * It is the way the continuous integration proves the floor of the
+ * deployments: the suites run against the version of the development
+ * machine and against the oldest major that a deployment may run.
+ */
+function requestedMajor(): number | null {
+  const requested = process.env.POSTGRES_MAJOR
+  if (!requested) return null
+  if (!/^\d+$/.test(requested)) {
+    throw new Error(`the major of PostgreSQL is not a number: ${requested}`)
+  }
+  return Number(requested)
+}
+
+/** The candidates for the binaries of PostgreSQL, the newest first. */
 const BINARIES = [
+  '/usr/lib/postgresql/18/bin',
   '/usr/lib/postgresql/17/bin',
   '/usr/lib/postgresql/16/bin',
   '/usr/lib/postgresql/15/bin',
   '/usr/lib/postgresql/14/bin',
   '/usr/local/pgsql/bin',
+  '/opt/homebrew/opt/postgresql@18/bin',
   '/opt/homebrew/opt/postgresql@16/bin',
 ]
 
 /** The directory of the binaries of PostgreSQL. */
 export function binaries(): string {
+  const requested = requestedMajor()
+  if (requested !== null) {
+    const candidate = `/usr/lib/postgresql/${requested}/bin`
+    if (existsSync(join(candidate, 'initdb'))) return candidate
+    throw new Error(`the binaries of the PostgreSQL ${requested} were not found`)
+  }
   for (const candidate of BINARIES) {
     if (existsSync(join(candidate, 'initdb'))) return candidate
   }
   throw new Error('the binaries of PostgreSQL were not found')
+}
+
+/**
+ * The major of the server of a directory of binaries.
+ *
+ * It is null when the binaries do not answer: the version is then
+ * unknown, and it is not guessed.
+ */
+export function majorOf(bin: string): number | null {
+  const version = spawnSync(join(bin, 'postgres'), ['--version'], { encoding: 'utf8' })
+  if (version.status !== 0) return null
+  const match = /\(\s*PostgreSQL\)\s+(\d+)\./.exec(version.stdout)
+  return match ? Number(match[1]) : null
 }
 
 /** Finds a free port. */
@@ -75,6 +127,15 @@ export interface PostgresOptions {
 /** Starts a PostgreSQL server. */
 export async function startPostgres(options: PostgresOptions = {}): Promise<StartedPostgres> {
   const bin = binaries()
+  const major = majorOf(bin)
+  if (major !== null && major !== DEVELOPMENT_MAJOR && requestedMajor() === null) {
+    // The suites prove the semantics of a version, and a suite that
+    // runs against another major proves another version. The warning is
+    // on the standard error: the standard output is the url.
+    console.warn(
+      `the server of the development is PostgreSQL ${major} and not ${DEVELOPMENT_MAJOR}: the suites prove another version`
+    )
+  }
   const dataDir = resolve(options.dataDir ?? join(process.cwd(), '.pg', 'data'))
   const socketDir = resolve(join(dataDir, '..', 'socket'))
   const port = options.port ?? (await freePort())
@@ -94,6 +155,16 @@ export async function startPostgres(options: PostgresOptions = {}): Promise<Star
     )
     if (init.status !== 0) {
       throw new Error(`initdb failed: ${init.stderr}`)
+    }
+  } else if (major !== null) {
+    // A data directory of another major is not a data directory of this
+    // server: the server refuses to start on it, and the refusal of the
+    // server is not the message that the developer needs.
+    const installed = readFileSync(join(dataDir, 'PG_VERSION'), 'utf8').trim()
+    if (installed !== String(major)) {
+      throw new Error(
+        `the data directory ${dataDir} is of the version ${installed} and the server is the version ${major}: remove it or start with --fresh`
+      )
     }
   }
 
